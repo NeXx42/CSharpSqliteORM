@@ -55,13 +55,16 @@ public static class Database_Manager
     }
 
 
+    public static string GetGenericParameterName() => Guid.NewGuid().ToString().Replace("-", "");
 
-    public static async Task<T[]> GetItems<T>(SQLFilter.InternalSQLFilter? filter) where T : IDatabase_Table
+    public static async Task<bool> Exists<T>(SQLFilter.InternalSQLFilter? filter = null) where T : IDatabase_Table => (await GetItems<T>(filter))?.Length > 0; // replace with actual sql
+
+    public static async Task<T[]> GetItems<T>(SQLFilter.InternalSQLFilter? filter = null) where T : IDatabase_Table
     {
         if (filter != null)
         {
-            filter.Build(T.tableName, out string sql, out SQLiteParameter[] args);
-            return await ExecuteSQLQuery(sql, Database_ColumnMapper.DeserializeRow<T>, args);
+            filter.Build(T.tableName, out string sql, out List<SQLiteParameter> args);
+            return await ExecuteSQLQuery(sql, Database_ColumnMapper.DeserializeRow<T>, args.ToArray());
         }
         else
         {
@@ -81,7 +84,7 @@ public static class Database_Manager
 
             foreach (Database_Column col in columns)
             {
-                string paramName = sqlParams.Count.ToString();
+                string paramName = GetGenericParameterName();
 
                 paramNames.Add($"@{paramName}");
                 sqlParams.Add(new SQLiteParameter(paramName, Database_ColumnMapper.SerializeColumn<T>(row, col)));
@@ -91,6 +94,48 @@ public static class Database_Manager
         }
 
         await ExecuteSQLNonQuery(sql.ToString(), sqlParams.ToArray());
+    }
+
+    public static async Task AddOrUpdate<T>(T obj, Func<T, SQLFilter.InternalSQLFilter>? match, params string[] columns) where T : IDatabase_Table
+    {
+        SQLFilter.InternalSQLFilter? whereClause = match != null ? match(obj) : null;
+
+        if (await Exists<T>(whereClause))
+        {
+            StringBuilder sql = new StringBuilder($"UPDATE {T.tableName} SET ");
+
+            List<string> updates = new List<string>();
+            List<SQLiteParameter> sqlParams = new List<SQLiteParameter>();
+
+            Database_Column[] cols = T.getColumns;
+
+            foreach (Database_Column col in cols)
+            {
+                if (columns?.Length > 0 && !columns.Contains(col.columnName))
+                    continue;
+
+                SQLiteParameter param = new SQLiteParameter(GetGenericParameterName(), Database_ColumnMapper.SerializeColumn<T>(obj, col));
+
+                updates.Add($"{col.columnName} = @{param.ParameterName}");
+                sqlParams.Add(param);
+            }
+
+            sql.Append(string.Join(",", updates));
+
+            if (whereClause != null)
+            {
+                whereClause.BuildGeneric(out string addition, out List<SQLiteParameter> extraArgs);
+                sqlParams.AddRange(extraArgs);
+
+                sql.Append(addition);
+            }
+
+            await ExecuteSQLNonQuery(sql.ToString(), sqlParams.ToArray());
+        }
+        else
+        {
+            await InsertItem(obj);
+        }
     }
 
 
@@ -172,7 +217,7 @@ public static class SQLFilter
 
         public InternalSQLFilter Equal(string columnName, object val)
         {
-            SQLiteParameter arg = new SQLiteParameter(arguments.Count.ToString(), val);
+            SQLiteParameter arg = new SQLiteParameter(Database_Manager.GetGenericParameterName(), val);
             whereClauses.Add($"{columnName} = @{arg.ParameterName}");
             arguments.Add(arg);
 
@@ -181,9 +226,17 @@ public static class SQLFilter
 
 
 
-        public void Build(string tableName, out string resultSql, out SQLiteParameter[] args)
+        public void Build(string tableName, out string resultSql, out List<SQLiteParameter> args)
         {
             StringBuilder sql = new StringBuilder($"SELECT _t.* FROM {tableName} _t");
+
+            BuildGeneric(out string addition, out args);
+            resultSql = sql.Append(addition).ToString();
+        }
+
+        public void BuildGeneric(out string addition, out List<SQLiteParameter> args)
+        {
+            StringBuilder sql = new StringBuilder();
 
             if (whereClauses.Count > 0)
             {
@@ -197,8 +250,8 @@ public static class SQLFilter
                 sql.Append(string.Join(" , ", orderClauses));
             }
 
-            args = arguments.ToArray();
-            resultSql = sql.ToString();
+            args = this.arguments;
+            addition = sql.ToString();
         }
     }
 }
