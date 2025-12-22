@@ -138,6 +138,20 @@ public static class Database_Manager
         }
     }
 
+    public static async Task Delete<T>(SQLFilter.InternalSQLFilter? filter = null) where T : IDatabase_Table
+    {
+        StringBuilder sql = new StringBuilder($"DELETE FROM {T.tableName} ");
+        if (filter != null)
+        {
+            filter.BuildGeneric(out string where, out List<SQLiteParameter> args);
+            await ExecuteSQLNonQuery(sql.Append(where).ToString(), args.ToArray());
+        }
+        else
+        {
+            await ExecuteSQLNonQuery(sql.ToString());
+        }
+    }
+
 
     /*
         DB LOGIC
