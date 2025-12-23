@@ -96,11 +96,18 @@ public static class Database_Manager
         await ExecuteSQLNonQuery(sql.ToString(), sqlParams.ToArray());
     }
 
-    public static async Task AddOrUpdate<T>(T obj, Func<T, SQLFilter.InternalSQLFilter>? match, params string[] columns) where T : IDatabase_Table
+    public static async Task AddOrUpdate<T>(T[] objs, Func<T, SQLFilter.InternalSQLFilter>? match, params string[] columns) where T : IDatabase_Table
     {
-        SQLFilter.InternalSQLFilter? whereClause = match != null ? match(obj) : null;
+        foreach (T obj in objs)
+        {
+            await AddOrUpdate(obj, match == null ? null : match(obj), columns);
+        }
+    }
 
-        if (await Exists<T>(whereClause))
+
+    public static async Task AddOrUpdate<T>(T obj, SQLFilter.InternalSQLFilter? match, params string[] columns) where T : IDatabase_Table
+    {
+        if (await Exists<T>(match))
         {
             StringBuilder sql = new StringBuilder($"UPDATE {T.tableName} SET ");
 
@@ -122,9 +129,9 @@ public static class Database_Manager
 
             sql.Append(string.Join(",", updates));
 
-            if (whereClause != null)
+            if (match != null)
             {
-                whereClause.BuildGeneric(out string addition, out List<SQLiteParameter> extraArgs);
+                match.BuildGeneric(out string addition, out List<SQLiteParameter> extraArgs);
                 sqlParams.AddRange(extraArgs);
 
                 sql.Append(addition);

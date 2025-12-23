@@ -38,7 +38,7 @@ public static class Database_ColumnMapper
 
             if (columnResult != null && prop != null)
             {
-                object? realVal = DeserializeColumn(columnResult, col.columnType);
+                object? realVal = DeserializeColumn(columnResult, col.columnType, prop.PropertyType);
                 prop.SetValue(row, realVal);
             }
         }
@@ -46,14 +46,19 @@ public static class Database_ColumnMapper
         return row;
     }
 
-    public static object? DeserializeColumn(object val, Database_ColumnType columnType)
+    public static object? DeserializeColumn(object val, Database_ColumnType columnType, Type endType)
     {
         if (val == DBNull.Value)
             return null;
 
         switch (columnType)
         {
-            case Database_ColumnType.INTEGER: return Convert.ToInt32(val);
+            case Database_ColumnType.INTEGER:
+                if (endType == typeof(long))
+                    return Convert.ToInt64(val);
+
+                return Convert.ToInt32(val);
+
             case Database_ColumnType.BIT: return Convert.ToInt64(val) == 1;
             default: return val;
         }
