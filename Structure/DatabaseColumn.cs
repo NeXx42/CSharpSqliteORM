@@ -23,6 +23,10 @@ public struct Database_Column
 
         switch (columnType)
         {
+            case Database_ColumnType.DATETIME:
+                typeName = Database_ColumnType.TEXT.ToString();
+                break;
+
             default:
                 typeName = columnType.ToString();
                 break;
@@ -56,4 +60,5 @@ public enum Database_ColumnType
     TEXT,
     BIT,
     INTEGER,
+    DATETIME,
 }

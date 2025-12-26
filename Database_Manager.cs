@@ -1,6 +1,7 @@
 using System.Data.Common;
 using System.Data.SQLite;
 using System.Reflection;
+using System.Runtime.InteropServices.Marshalling;
 using System.Text;
 using CSharpSqliteORM.Structure;
 
@@ -57,7 +58,27 @@ public static class Database_Manager
 
     public static string GetGenericParameterName() => Guid.NewGuid().ToString().Replace("-", "");
 
-    public static async Task<bool> Exists<T>(SQLFilter.InternalSQLFilter? filter = null) where T : IDatabase_Table => (await GetItems<T>(filter))?.Length > 0; // replace with actual sql
+    public static async Task<bool> Exists<T>(SQLFilter.InternalSQLFilter? filter = null) where T : IDatabase_Table
+        => (await GetItems<T>(filter))?.Length > 0; // replace with actual sql
+
+    public static async Task<T?> GetItem<T>(SQLFilter.InternalSQLFilter? filter = null) where T : IDatabase_Table
+        => (await GetItems<T>(filter?.Limit(1) ?? SQLFilter.Limit(1))).FirstOrDefault();
+
+    public static async Task<(T[], int)> GetItemsWithCount<T>(string sql) where T : IDatabase_Table
+    {
+        int? rowCount = null;
+        return (await ExecuteSQLQuery<T>(sql, DeserializeRow), rowCount ?? 0);
+
+        async Task<T> DeserializeRow(SQLiteDataReader reader)
+        {
+            if (rowCount == null)
+            {
+                rowCount = Convert.ToInt32(reader["total_count"]);
+            }
+
+            return await Database_ColumnMapper.DeserializeRow<T>(reader);
+        }
+    }
 
     public static async Task<T[]> GetItems<T>(SQLFilter.InternalSQLFilter? filter = null) where T : IDatabase_Table
     {
@@ -96,6 +117,39 @@ public static class Database_Manager
         await ExecuteSQLNonQuery(sql.ToString(), sqlParams.ToArray());
     }
 
+    public static async Task Update<T>(T obj, SQLFilter.InternalSQLFilter? match, params string[] columns) where T : IDatabase_Table
+    {
+        StringBuilder sql = new StringBuilder($"UPDATE {T.tableName} SET ");
+
+        List<string> updates = new List<string>();
+        List<SQLiteParameter> sqlParams = new List<SQLiteParameter>();
+
+        Database_Column[] cols = T.getColumns;
+
+        foreach (Database_Column col in cols)
+        {
+            if (columns?.Length > 0 && !columns.Contains(col.columnName))
+                continue;
+
+            SQLiteParameter param = new SQLiteParameter(GetGenericParameterName(), Database_ColumnMapper.SerializeColumn<T>(obj, col));
+
+            updates.Add($"{col.columnName} = @{param.ParameterName}");
+            sqlParams.Add(param);
+        }
+
+        sql.Append(string.Join(",", updates));
+
+        if (match != null)
+        {
+            match.BuildGeneric(out string addition, out List<SQLiteParameter> extraArgs);
+            sqlParams.AddRange(extraArgs);
+
+            sql.Append(addition);
+        }
+
+        await ExecuteSQLNonQuery(sql.ToString(), sqlParams.ToArray());
+    }
+
     public static async Task AddOrUpdate<T>(T[] objs, Func<T, SQLFilter.InternalSQLFilter>? match, params string[] columns) where T : IDatabase_Table
     {
         foreach (T obj in objs)
@@ -109,35 +163,7 @@ public static class Database_Manager
     {
         if (await Exists<T>(match))
         {
-            StringBuilder sql = new StringBuilder($"UPDATE {T.tableName} SET ");
-
-            List<string> updates = new List<string>();
-            List<SQLiteParameter> sqlParams = new List<SQLiteParameter>();
-
-            Database_Column[] cols = T.getColumns;
-
-            foreach (Database_Column col in cols)
-            {
-                if (columns?.Length > 0 && !columns.Contains(col.columnName))
-                    continue;
-
-                SQLiteParameter param = new SQLiteParameter(GetGenericParameterName(), Database_ColumnMapper.SerializeColumn<T>(obj, col));
-
-                updates.Add($"{col.columnName} = @{param.ParameterName}");
-                sqlParams.Add(param);
-            }
-
-            sql.Append(string.Join(",", updates));
-
-            if (match != null)
-            {
-                match.BuildGeneric(out string addition, out List<SQLiteParameter> extraArgs);
-                sqlParams.AddRange(extraArgs);
-
-                sql.Append(addition);
-            }
-
-            await ExecuteSQLNonQuery(sql.ToString(), sqlParams.ToArray());
+            await Update(obj, match, columns);
         }
         else
         {
@@ -229,11 +255,16 @@ public static class Database_Manager
 public static class SQLFilter
 {
     public static InternalSQLFilter Equal(string columnName, object val) => new InternalSQLFilter().Equal(columnName, val);
+    public static InternalSQLFilter Limit(int to) => new InternalSQLFilter().Limit(to);
+    public static InternalSQLFilter OrderDesc(string columnName) => new InternalSQLFilter().OrderDesc(columnName);
 
     public class InternalSQLFilter
     {
         public List<string> whereClauses = new List<string>();
         public List<string> orderClauses = new List<string>();
+
+        public int? limitAmount;
+
         public List<SQLiteParameter> arguments = new List<SQLiteParameter>();
 
         public InternalSQLFilter Equal(string columnName, object val)
@@ -245,6 +276,17 @@ public static class SQLFilter
             return this;
         }
 
+        public InternalSQLFilter Limit(int to)
+        {
+            limitAmount = to;
+            return this;
+        }
+
+        public InternalSQLFilter OrderDesc(string columnName)
+        {
+            orderClauses.Add($"{columnName} Desc");
+            return this;
+        }
 
 
         public void Build(string tableName, out string resultSql, out List<SQLiteParameter> args)
@@ -271,8 +313,13 @@ public static class SQLFilter
                 sql.Append(string.Join(" , ", orderClauses));
             }
 
+            if (limitAmount != null)
+            {
+                sql.Append($" LIMIT {limitAmount.Value}");
+            }
+
             args = this.arguments;
-            addition = sql.ToString();
+            addition = $"{sql};";
         }
     }
 }

@@ -59,6 +59,9 @@ public static class Database_ColumnMapper
 
                 return Convert.ToInt32(val);
 
+            case Database_ColumnType.DATETIME:
+                return DateTime.Parse((string)val);
+
             case Database_ColumnType.BIT: return Convert.ToInt64(val) == 1;
             default: return val;
         }
@@ -67,6 +70,16 @@ public static class Database_ColumnMapper
     public static object SerializeColumn<T>(IDatabase_Table row, Database_Column column)
     {
         PropertyInfo? prop = typeof(T).GetProperty(column.columnName);
-        return prop?.GetValue(row) ?? DBNull.Value;
+        object? obj = prop?.GetValue(row);
+
+        if (obj != null)
+        {
+            if (prop!.PropertyType == typeof(DateTime))
+            {
+                obj = ((DateTime)obj).ToString();
+            }
+        }
+
+        return obj ?? DBNull.Value;
     }
 }
