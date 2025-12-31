@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Runtime.InteropServices.Marshalling;
 using System.Text;
 using CSharpSqliteORM.Structure;
+using Logic.db;
 
 namespace CSharpSqliteORM;
 
@@ -30,6 +31,7 @@ public static class Database_Manager
         connection ??= new SQLiteConnection(GetConnectionString());
 
         await GenerateTables();
+        await HandleMigrations();
     }
 
     private static async Task GenerateTables()
@@ -54,6 +56,58 @@ public static class Database_Manager
 
         await connection.CloseAsync();
     }
+
+
+    private static async Task HandleMigrations()
+    {
+        Type[] migrations = AppDomain.CurrentDomain.GetAssemblies().SelectMany(x => x.GetTypes().Where(t => t.IsClass && !t.IsAbstract && typeof(IDatabase_Migration).IsAssignableFrom(t))).ToArray();
+        long? lastMigration = null;
+
+        string? id = (await GetItem<dbo_Config>(SQLFilter.Equal(nameof(dbo_Config.key), IDatabase_Migration.CONFIG_MIGRATIONID)))?.value ?? null;
+
+        if (!string.IsNullOrEmpty(id))
+        {
+            lastMigration = long.Parse(id);
+        }
+
+        IDatabase_Migration[] migrationsToApply = migrations.Select(x => (IDatabase_Migration)Activator.CreateInstance(x)!)
+            .Where(x => x.migrationId > (lastMigration ?? 0))
+            .OrderBy(x => x.migrationId).ToArray();
+
+
+        if (lastMigration.HasValue)
+        {
+            lastMigration = null;
+            await connection!.OpenAsync();
+
+            foreach (IDatabase_Migration migration in migrationsToApply)
+            {
+                lastMigration = migration.migrationId;
+
+                using (SQLiteCommand command = new SQLiteCommand(migration.Up(), connection))
+                {
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
+            await connection.CloseAsync();
+        }
+        else
+        {
+            // migrations in this context are only to update existing database TABLES,
+            // as migrations are only for amending tables there is no need to do migration on a database that is has just been created
+            lastMigration = migrationsToApply[migrations.Length - 1].migrationId;
+        }
+
+        if (lastMigration.HasValue)
+        {
+            await Delete<dbo_Config>(SQLFilter.Equal(nameof(dbo_Config.key), IDatabase_Migration.CONFIG_MIGRATIONID));
+            await InsertItem(new dbo_Config() { key = IDatabase_Migration.CONFIG_MIGRATIONID, value = lastMigration.Value.ToString() });
+        }
+    }
+
+
+
 
 
     public static string GetGenericParameterName() => Guid.NewGuid().ToString().Replace("-", "");
@@ -95,24 +149,31 @@ public static class Database_Manager
 
     public static async Task InsertItem<T>(params T[] entries) where T : IDatabase_Table
     {
-        StringBuilder sql = new StringBuilder($"INSERT INTO {T.tableName} VALUES ");
+        Database_Column[] columns = T.getColumns.Where(x => !x.autoIncrement).ToArray();
+        List<string> rows = new List<string>();
+
         List<SQLiteParameter> sqlParams = new List<SQLiteParameter>();
 
         foreach (T row in entries)
         {
             List<string> paramNames = new List<string>();
-            Database_Column[] columns = T.getColumns;
 
             foreach (Database_Column col in columns)
             {
+                if (col.autoIncrement)
+                    continue;
+
                 string paramName = GetGenericParameterName();
 
                 paramNames.Add($"@{paramName}");
                 sqlParams.Add(new SQLiteParameter(paramName, Database_ColumnMapper.SerializeColumn<T>(row, col)));
             }
 
-            sql.Append($"({string.Join(",", paramNames)})");
+            rows.Add($"({string.Join(",", paramNames)})");
         }
+
+        StringBuilder sql = new StringBuilder($"INSERT INTO {T.tableName} ({string.Join(",", columns.Select(x => x.columnName))}) VALUES");
+        sql.Append(string.Join(",", rows));
 
         await ExecuteSQLNonQuery(sql.ToString(), sqlParams.ToArray());
     }
@@ -255,6 +316,7 @@ public static class Database_Manager
 public static class SQLFilter
 {
     public static InternalSQLFilter Equal(string columnName, object val) => new InternalSQLFilter().Equal(columnName, val);
+    public static InternalSQLFilter IsNull(string columnName) => new InternalSQLFilter().IsNull(columnName);
     public static InternalSQLFilter Limit(int to) => new InternalSQLFilter().Limit(to);
     public static InternalSQLFilter OrderDesc(string columnName) => new InternalSQLFilter().OrderDesc(columnName);
 
@@ -273,6 +335,12 @@ public static class SQLFilter
             whereClauses.Add($"{columnName} = @{arg.ParameterName}");
             arguments.Add(arg);
 
+            return this;
+        }
+
+        public InternalSQLFilter IsNull(string columnName)
+        {
+            whereClauses.Add($"{columnName} IS NULL");
             return this;
         }
 
