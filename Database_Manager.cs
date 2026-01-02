@@ -319,6 +319,7 @@ public static class SQLFilter
     public static InternalSQLFilter IsNull(string columnName) => new InternalSQLFilter().IsNull(columnName);
     public static InternalSQLFilter Limit(int to) => new InternalSQLFilter().Limit(to);
     public static InternalSQLFilter OrderDesc(string columnName) => new InternalSQLFilter().OrderDesc(columnName);
+    public static InternalSQLFilter OrderAsc(string columnName) => new InternalSQLFilter().OrderAsc(columnName);
 
     public class InternalSQLFilter
     {
@@ -353,6 +354,12 @@ public static class SQLFilter
         public InternalSQLFilter OrderDesc(string columnName)
         {
             orderClauses.Add($"{columnName} Desc");
+            return this;
+        }
+
+        public InternalSQLFilter OrderAsc(string columnName)
+        {
+            orderClauses.Add($"{columnName} Asc");
             return this;
         }
 
