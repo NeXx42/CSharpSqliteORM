@@ -11,6 +11,8 @@ public struct Database_Column
     public bool isPrimaryKey;
     public bool allowNull;
 
+    public string? defaultValue;
+
     public Database_Column()
     {
         isPrimaryKey = false;
@@ -48,6 +50,11 @@ public struct Database_Column
         if (!allowNull)
         {
             sql.Append(" NOT NULL");
+        }
+
+        if (!string.IsNullOrEmpty(defaultValue))
+        {
+            sql.Append($" DEFAULT {defaultValue}");
         }
 
         return sql.ToString();

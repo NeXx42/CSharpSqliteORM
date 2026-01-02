@@ -14,9 +14,14 @@ public static class Database_Manager
     private static string GetConnectionString() => $"Data Source={dbPath};Version=3;";
 
     private static SQLiteConnection? connection;
+    private static Action<Exception>? errorCallback;
 
-    public static async Task Init(string location)
+    private static SemaphoreSlim _mutex = new SemaphoreSlim(1, 1);
+
+    public static async Task Init(string location, Action<Exception>? errorCallback = null)
     {
+        Database_Manager.errorCallback = errorCallback;
+
         if (string.IsNullOrEmpty(location))
             throw new Exception("Invalid path");
 
@@ -149,6 +154,9 @@ public static class Database_Manager
 
     public static async Task InsertItem<T>(params T[] entries) where T : IDatabase_Table
     {
+        if (entries.Length == 0)
+            return;
+
         Database_Column[] columns = T.getColumns.Where(x => !x.autoIncrement).ToArray();
         List<string> rows = new List<string>();
 
@@ -256,6 +264,7 @@ public static class Database_Manager
     {
         try
         {
+            await _mutex.WaitAsync();
             await connection!.OpenAsync();
 
             using (SQLiteCommand cmd = new SQLiteCommand(sql, connection))
@@ -264,12 +273,14 @@ public static class Database_Manager
                 await cmd.ExecuteNonQueryAsync();
             }
         }
-        catch
+        catch (Exception e)
         {
+            errorCallback?.Invoke(e);
         }
         finally
         {
             await connection!.CloseAsync();
+            _mutex.Release();
         }
     }
 
@@ -279,6 +290,7 @@ public static class Database_Manager
 
         try
         {
+            await _mutex.WaitAsync();
             await connection!.OpenAsync();
 
             using (SQLiteCommand cmd = new SQLiteCommand(sql, connection))
@@ -296,12 +308,14 @@ public static class Database_Manager
                 }
             }
         }
-        catch
+        catch (Exception e)
         {
+            errorCallback?.Invoke(e);
         }
         finally
         {
             await connection!.CloseAsync();
+            _mutex.Release();
         }
 
         return res.ToArray();
