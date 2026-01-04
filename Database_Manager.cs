@@ -254,6 +254,26 @@ public static class Database_Manager
         }
     }
 
+    public static async Task<int> GetCount<T>(SQLFilter.InternalSQLFilter? filter = null) where T : IDatabase_Table
+    {
+        const string countName = "cnt";
+        StringBuilder sql = new StringBuilder($"select Count(*) as {countName} FROM {T.tableName}");
+
+        if (filter != null)
+        {
+            filter.BuildGeneric(out string clauses, out List<SQLiteParameter> args);
+            sql.Append(clauses);
+
+            return (await ExecuteSQLQuery(sql.ToString(), Parse, args.ToArray()))[0];
+        }
+        else
+        {
+            return (await ExecuteSQLQuery(sql.ToString(), Parse))[0];
+        }
+
+        Task<int> Parse(SQLiteDataReader reader) => Task.FromResult(Convert.ToInt32(reader[countName]));
+    }
+
 
     /*
         DB LOGIC
