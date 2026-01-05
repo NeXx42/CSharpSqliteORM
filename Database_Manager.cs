@@ -101,7 +101,7 @@ public static class Database_Manager
         {
             // migrations in this context are only to update existing database TABLES,
             // as migrations are only for amending tables there is no need to do migration on a database that is has just been created
-            lastMigration = migrationsToApply[migrations.Length - 1].migrationId;
+            lastMigration = migrationsToApply.Length == 0 ? 0 : migrationsToApply[migrations.Length - 1].migrationId;
         }
 
         if (lastMigration.HasValue)
