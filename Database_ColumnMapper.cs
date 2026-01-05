@@ -33,7 +33,18 @@ public static class Database_ColumnMapper
 
         foreach (Database_Column col in columns)
         {
-            object? columnResult = reader[col.columnName];
+            object? columnResult = null;
+
+            try
+            {
+                columnResult = reader[col.columnName];
+            }
+            catch
+            {
+                throw new Exception($"Column '{col.columnName}' doesn't exist");
+            }
+
+
             PropertyInfo? prop = props.FirstOrDefault(x => x.Name.Equals(col.columnName));
 
             if (columnResult != null && prop != null)

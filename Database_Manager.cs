@@ -14,11 +14,11 @@ public static class Database_Manager
     private static string GetConnectionString() => $"Data Source={dbPath};Version=3;";
 
     private static SQLiteConnection? connection;
-    private static Action<Exception>? errorCallback;
+    private static Action<Exception, string?>? errorCallback;
 
     private static SemaphoreSlim _mutex = new SemaphoreSlim(1, 1);
 
-    public static async Task Init(string location, Action<Exception>? errorCallback = null)
+    public static async Task Init(string location, Action<Exception, string?>? errorCallback = null)
     {
         Database_Manager.errorCallback = errorCallback;
 
@@ -293,9 +293,13 @@ public static class Database_Manager
                 await cmd.ExecuteNonQueryAsync();
             }
         }
+        catch (SQLiteException e)
+        {
+            errorCallback?.Invoke(e, sql);
+        }
         catch (Exception e)
         {
-            errorCallback?.Invoke(e);
+            errorCallback?.Invoke(e, null);
         }
         finally
         {
@@ -328,9 +332,13 @@ public static class Database_Manager
                 }
             }
         }
+        catch (SQLiteException e)
+        {
+            errorCallback?.Invoke(e, sql);
+        }
         catch (Exception e)
         {
-            errorCallback?.Invoke(e);
+            errorCallback?.Invoke(e, null);
         }
         finally
         {
