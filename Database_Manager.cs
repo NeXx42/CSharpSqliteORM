@@ -139,6 +139,11 @@ public static class Database_Manager
         }
     }
 
+    public static async Task<T[]> GetItemsGeneric<T>(string sql, Func<SQLiteDataReader, Task<T>> deserializer)
+    {
+        return await ExecuteSQLQuery<T>(sql, deserializer);
+    }
+
     public static async Task<T[]> GetItems<T>(SQLFilter.InternalSQLFilter? filter = null) where T : IDatabase_Table
     {
         if (filter != null)
