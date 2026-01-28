@@ -126,7 +126,7 @@ public static class Database_Manager
     public static async Task<(T[], int)> GetItemsWithCount<T>(string sql) where T : IDatabase_Table
     {
         int? rowCount = null;
-        return (await ExecuteSQLQuery<T>(sql, DeserializeRow), rowCount ?? 0);
+        return (await ExecuteSQLQuery<T>(sql, DeserializeRow, null), rowCount ?? 0);
 
         async Task<T> DeserializeRow(SQLiteDataReader reader)
         {
@@ -139,9 +139,9 @@ public static class Database_Manager
         }
     }
 
-    public static async Task<T[]> GetItemsGeneric<T>(string sql, Func<SQLiteDataReader, Task<T>> deserializer)
+    public static async Task<T[]> GetItemsGeneric<T>(string sql, Func<SQLiteDataReader, Task<T>> deserializer, CancellationToken? cancellationToken = null)
     {
-        return await ExecuteSQLQuery<T>(sql, deserializer);
+        return await ExecuteSQLQuery<T>(sql, deserializer, cancellationToken);
     }
 
     public static async Task<T[]> GetItems<T>(SQLFilter.InternalSQLFilter? filter = null) where T : IDatabase_Table
@@ -149,11 +149,11 @@ public static class Database_Manager
         if (filter != null)
         {
             filter.Build(T.tableName, out string sql, out List<SQLiteParameter> args);
-            return await ExecuteSQLQuery(sql, Database_ColumnMapper.DeserializeRow<T>, args.ToArray());
+            return await ExecuteSQLQuery(sql, Database_ColumnMapper.DeserializeRow<T>, null, args.ToArray());
         }
         else
         {
-            return await ExecuteSQLQuery($"SELECT * FROM {T.tableName}", Database_ColumnMapper.DeserializeRow<T>);
+            return await ExecuteSQLQuery($"SELECT * FROM {T.tableName}", Database_ColumnMapper.DeserializeRow<T>, null);
         }
     }
 
@@ -188,7 +188,7 @@ public static class Database_Manager
         StringBuilder sql = new StringBuilder($"INSERT INTO {T.tableName} ({string.Join(",", columns.Select(x => x.columnName))}) VALUES");
         sql.Append(string.Join(",", rows));
 
-        await ExecuteSQLNonQuery(sql.ToString(), sqlParams.ToArray());
+        await ExecuteSQLNonQuery(sql.ToString(), null, sqlParams.ToArray());
     }
 
     public static async Task Update<T>(T obj, SQLFilter.InternalSQLFilter? match, params string[] columns) where T : IDatabase_Table
@@ -221,7 +221,7 @@ public static class Database_Manager
             sql.Append(addition);
         }
 
-        await ExecuteSQLNonQuery(sql.ToString(), sqlParams.ToArray());
+        await ExecuteSQLNonQuery(sql.ToString(), null, sqlParams.ToArray());
     }
 
     public static async Task AddOrUpdate<T>(T[] objs, Func<T, SQLFilter.InternalSQLFilter>? match, params string[] columns) where T : IDatabase_Table
@@ -251,15 +251,15 @@ public static class Database_Manager
         if (filter != null)
         {
             filter.BuildGeneric(out string where, out List<SQLiteParameter> args);
-            await ExecuteSQLNonQuery(sql.Append(where).ToString(), args.ToArray());
+            await ExecuteSQLNonQuery(sql.Append(where).ToString(), null, args.ToArray());
         }
         else
         {
-            await ExecuteSQLNonQuery(sql.ToString());
+            await ExecuteSQLNonQuery(sql.ToString(), null);
         }
     }
 
-    public static async Task<int> GetCount<T>(SQLFilter.InternalSQLFilter? filter = null) where T : IDatabase_Table
+    public static async Task<int> GetCount<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? cancellationToken = null) where T : IDatabase_Table
     {
         const string countName = "cnt";
         StringBuilder sql = new StringBuilder($"select Count(*) as {countName} FROM {T.tableName}");
@@ -269,11 +269,11 @@ public static class Database_Manager
             filter.BuildGeneric(out string clauses, out List<SQLiteParameter> args);
             sql.Append(clauses);
 
-            return (await ExecuteSQLQuery(sql.ToString(), Parse, args.ToArray()))[0];
+            return (await ExecuteSQLQuery(sql.ToString(), Parse, cancellationToken, args.ToArray()))[0];
         }
         else
         {
-            return (await ExecuteSQLQuery(sql.ToString(), Parse))[0];
+            return (await ExecuteSQLQuery(sql.ToString(), Parse, cancellationToken))[0];
         }
 
         Task<int> Parse(SQLiteDataReader reader) => Task.FromResult(Convert.ToInt32(reader[countName]));
@@ -285,17 +285,19 @@ public static class Database_Manager
     */
 
 
-    public static async Task ExecuteSQLNonQuery(string sql, params SQLiteParameter[] args)
+    public static async Task ExecuteSQLNonQuery(string sql, CancellationToken? cancellationToken, params SQLiteParameter[] args)
     {
+        cancellationToken ??= CancellationToken.None;
+
         try
         {
-            await _mutex.WaitAsync();
-            await connection!.OpenAsync();
+            await _mutex.WaitAsync(cancellationToken.Value);
+            await connection!.OpenAsync(cancellationToken.Value);
 
             using (SQLiteCommand cmd = new SQLiteCommand(sql, connection))
             {
                 cmd.Parameters.AddRange(args);
-                await cmd.ExecuteNonQueryAsync();
+                await cmd.ExecuteNonQueryAsync(cancellationToken.Value);
             }
         }
         catch (SQLiteException e)
@@ -313,23 +315,24 @@ public static class Database_Manager
         }
     }
 
-    public static async Task<T[]> ExecuteSQLQuery<T>(string sql, Func<SQLiteDataReader, Task<T>> deserializer, params SQLiteParameter[]? args)
+    public static async Task<T[]> ExecuteSQLQuery<T>(string sql, Func<SQLiteDataReader, Task<T>> deserializer, CancellationToken? cancellationToken, params SQLiteParameter[]? args)
     {
+        cancellationToken ??= CancellationToken.None;
         List<T> res = new List<T>();
 
         try
         {
-            await _mutex.WaitAsync();
-            await connection!.OpenAsync();
+            await _mutex.WaitAsync(cancellationToken.Value);
+            await connection!.OpenAsync(cancellationToken.Value);
 
             using (SQLiteCommand cmd = new SQLiteCommand(sql, connection))
             {
                 if (args?.Length > 0)
                     cmd.Parameters.AddRange(args);
 
-                using (SQLiteDataReader reader = (SQLiteDataReader)await cmd.ExecuteReaderAsync())
+                using (SQLiteDataReader reader = (SQLiteDataReader)await cmd.ExecuteReaderAsync(cancellationToken.Value))
                 {
-                    while (await reader.ReadAsync())
+                    while (await reader.ReadAsync(cancellationToken.Value))
                     {
                         T deserializedResult = await deserializer(reader);
                         res.Add(deserializedResult);
