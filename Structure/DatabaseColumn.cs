@@ -68,4 +68,5 @@ public enum Database_ColumnType
     BIT,
     INTEGER,
     DATETIME,
+    GUID,
 }

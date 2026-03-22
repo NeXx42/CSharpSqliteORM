@@ -64,6 +64,9 @@ public static class Database_ColumnMapper
 
         switch (columnType)
         {
+            case Database_ColumnType.GUID:
+                return Guid.Parse((string)val);
+
             case Database_ColumnType.INTEGER:
                 if (endType == typeof(long))
                     return Convert.ToInt64(val);
@@ -88,6 +91,10 @@ public static class Database_ColumnMapper
             if (prop!.PropertyType == typeof(DateTime))
             {
                 obj = ((DateTime)obj).ToString();
+            }
+            else if (prop!.PropertyType == typeof(Guid))
+            {
+                obj = ((Guid)obj).ToString();
             }
         }
 
