@@ -117,11 +117,11 @@ public static class Database_Manager
 
     public static string GetGenericParameterName() => Guid.NewGuid().ToString().Replace("-", "");
 
-    public static async Task<bool> Exists<T>(SQLFilter.InternalSQLFilter? filter = null) where T : IDatabase_Table
-        => (await GetItems<T>(filter))?.Length > 0; // replace with actual sql
+    public static async Task<bool> Exists<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? token = null) where T : IDatabase_Table
+        => (await GetItems<T>(filter, token))?.Length > 0; // replace with actual sql
 
-    public static async Task<T?> GetItem<T>(SQLFilter.InternalSQLFilter? filter = null) where T : IDatabase_Table
-        => (await GetItems<T>(filter?.Limit(1) ?? SQLFilter.Limit(1))).FirstOrDefault();
+    public static async Task<T?> GetItem<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? token = null) where T : IDatabase_Table
+        => (await GetItems<T>(filter?.Limit(1) ?? SQLFilter.Limit(1), token)).FirstOrDefault();
 
     public static async Task<(T[], int)> GetItemsWithCount<T>(string sql) where T : IDatabase_Table
     {
@@ -144,16 +144,16 @@ public static class Database_Manager
         return await ExecuteSQLQuery<T>(sql, deserializer, cancellationToken);
     }
 
-    public static async Task<T[]> GetItems<T>(SQLFilter.InternalSQLFilter? filter = null) where T : IDatabase_Table
+    public static async Task<T[]> GetItems<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? token = null) where T : IDatabase_Table
     {
         if (filter != null)
         {
             filter.Build(T.tableName, out string sql, out List<SQLiteParameter> args);
-            return await ExecuteSQLQuery(sql, Database_ColumnMapper.DeserializeRow<T>, null, args.ToArray());
+            return await ExecuteSQLQuery(sql, Database_ColumnMapper.DeserializeRow<T>, token, args.ToArray());
         }
         else
         {
-            return await ExecuteSQLQuery($"SELECT * FROM {T.tableName}", Database_ColumnMapper.DeserializeRow<T>, null);
+            return await ExecuteSQLQuery($"SELECT * FROM {T.tableName}", Database_ColumnMapper.DeserializeRow<T>, token);
         }
     }
 
