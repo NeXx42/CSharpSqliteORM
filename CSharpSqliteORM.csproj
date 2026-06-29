@@ -7,4 +7,23 @@
   <ItemGroup>
     <PackageReference Include="System.Data.SQLite.Core" Version="1.0.119" />
   </ItemGroup>
+
+  <PropertyGroup>
+    <PackageId>Nexx.CSharpSqliteORM</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Nexx</Authors>
+    <Company>Nexx</Company>
+    <Description>A C# sqlite orm.</Description>
+
+    <PackageTags>library;utilities</PackageTags>
+    <RepositoryUrl>https://github.com/NeXx42/CSharpSqliteORM</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
 </Project>
