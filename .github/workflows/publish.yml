@@ -45,7 +45,7 @@ jobs:
 
     - name: Push package
       run: |
-        dotnet nuget push "bin/Release/*.nupkg" \
+        dotnet nuget push "./CSharpSqliteORM/bin/Release/*.nupkg" \
           --api-key ${{ steps.nuget.outputs.NUGET_API_KEY }} \
           --source https://api.nuget.org/v3/index.json \
           --skip-duplicate
