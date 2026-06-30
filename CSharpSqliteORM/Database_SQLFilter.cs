@@ -6,6 +6,8 @@ namespace CSharpSqliteORM;
 public static class SQLFilter
 {
     public static InternalSQLFilter Equal(string columnName, object val) => new InternalSQLFilter().Equal(columnName, val);
+    public static InternalSQLFilter In<T>(string columnName, IEnumerable<T> vals) => new InternalSQLFilter().In(columnName, vals);
+
     public static InternalSQLFilter IsNull(string columnName) => new InternalSQLFilter().IsNull(columnName);
     public static InternalSQLFilter Limit(int to) => new InternalSQLFilter().Limit(to);
     public static InternalSQLFilter OrderDesc(string columnName) => new InternalSQLFilter().OrderDesc(columnName);
@@ -25,6 +27,36 @@ public static class SQLFilter
             SQLiteParameter arg = new SQLiteParameter(Database_Manager.GetGenericParameterName(), val);
             whereClauses.Add($"{columnName} = @{arg.ParameterName}");
             arguments.Add(arg);
+
+            return this;
+        }
+
+        public InternalSQLFilter In<T>(string columnName, IEnumerable<T> vals)
+        {
+            int count = vals.Count();
+
+            if (count == 0)
+                return this;
+
+
+            StringBuilder whereClause = new StringBuilder();
+            SQLiteParameter param;
+
+            whereClause.Append($"{columnName} in (");
+
+            for (int i = 0; i < count; i++)
+            {
+                param = new SQLiteParameter(Database_Manager.GetGenericParameterName(), vals.ElementAt(i));
+
+                whereClause.Append($"@{param.ParameterName}");
+                arguments.Add(param);
+
+                if (i < count - 1)
+                    whereClause.Append(",");
+            }
+
+            whereClause.Append(")");
+            whereClauses.Add(whereClause.ToString());
 
             return this;
         }

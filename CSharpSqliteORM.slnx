@@ -1,3 +1,4 @@
 <Solution>
+  <Project Path="CSharpSqliteORM.Test/CSharpSqliteORM.Test.csproj" />
   <Project Path="CSharpSqliteORM/CSharpSqliteORM.csproj" />
 </Solution>

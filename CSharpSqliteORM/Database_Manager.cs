@@ -10,86 +10,112 @@ namespace CSharpSqliteORM;
 
 public static class Database_Manager
 {
-    private static string? dbPath;
-    private static string GetConnectionString() => $"Data Source={dbPath};Version=3;";
-
-    private static SQLiteConnection? connection;
-    private static Action<Exception, string?>? errorCallback;
-
-    private static SemaphoreSlim _mutex = new SemaphoreSlim(1, 1);
+    // dont want to use this static instance but runix / tuxpaper rely on it. need to convert those to use the nuget package
+    private static DatabaseInstance? instance;
 
     public static async Task Init(string location, Action<Exception, string?>? errorCallback = null)
     {
-        Database_Manager.errorCallback = errorCallback;
+        if (instance != null)
+            throw new Exception("Database instance already exists");
 
-        if (string.IsNullOrEmpty(location))
-            throw new Exception("Invalid path");
-
-        dbPath = location;
-
-        if (!File.Exists(dbPath))
-        {
-            SQLiteConnection.CreateFile(dbPath);
-            connection = new SQLiteConnection(GetConnectionString());
-        }
-
-        connection ??= new SQLiteConnection(GetConnectionString());
-
-        await GenerateTables();
-        await HandleMigrations();
+        instance = new DatabaseInstance();
+        await instance.Init(location, errorCallback);
     }
 
-    private static async Task GenerateTables()
+    public static string GetGenericParameterName() => Guid.NewGuid().ToString().Replace("-", "");
+
+    public static async Task<int> GetCount<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? cancellationToken = null) where T : IDatabase_Table
+        => await instance!.GetCount<T>(filter, cancellationToken);
+
+    public static async Task Delete<T>(SQLFilter.InternalSQLFilter? filter = null) where T : IDatabase_Table
+        => await instance!.Delete<T>(filter);
+
+    public static async Task AddOrUpdate<T>(T obj, SQLFilter.InternalSQLFilter? match, params string[] columns) where T : IDatabase_Table
+        => await instance!.AddOrUpdate<T>(obj, match, columns);
+
+    public static async Task AddOrUpdate<T>(T[] objs, Func<T, SQLFilter.InternalSQLFilter>? match, params string[] columns) where T : IDatabase_Table
+        => await instance!.AddOrUpdate<T>(objs, match, columns);
+
+    public static async Task Update<T>(T obj, SQLFilter.InternalSQLFilter? match, params string[] columns) where T : IDatabase_Table
+        => await instance!.Update<T>(obj, match, columns);
+
+    public static async Task InsertItem<T>(params T[] entries) where T : IDatabase_Table
+        => await instance!.InsertItem<T>(entries);
+
+    public static async Task<T[]> GetItems<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? token = null) where T : IDatabase_Table
+        => await instance!.GetItems<T>(filter, token);
+
+    public static async Task<T[]> GetItemsGeneric<T>(string sql, Func<SQLiteDataReader, Task<T>> deserializer, CancellationToken? cancellationToken = null)
+        => await instance!.GetItemsGeneric<T>(sql, deserializer, cancellationToken);
+
+    public static async Task<(T[], int)> GetItemsWithCount<T>(string sql) where T : IDatabase_Table
+        => await instance!.GetItemsWithCount<T>(sql);
+
+    public static async Task<T?> GetItem<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? token = null) where T : IDatabase_Table
+        => await instance!.GetItem<T>(filter, token);
+
+    public static async Task<bool> Exists<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? token = null) where T : IDatabase_Table
+        => await instance!.Exists<T>(filter, token);
+
+
+    public static async Task<T[]> ExecuteSQLQuery<T>(string sql, Func<SQLiteDataReader, Task<T>> deserializer, CancellationToken? cancellationToken, params SQLiteParameter[]? args)
+        => await instance!.ExecuteSQLQuery<T>(sql, deserializer, cancellationToken, args);
+
+    public static async Task ExecuteSQLNonQuery(string sql, CancellationToken? cancellationToken, params SQLiteParameter[] args)
+        => await instance!.ExecuteSQLNonQuery(sql, cancellationToken, args);
+
+
+
+    public class DatabaseInstance : IDisposable
     {
-        // cannot add or modify existing columns. way too advanced for this
+        private string? dbPath;
+        private string GetConnectionString() => $"Data Source={dbPath};Version=3;";
 
-        Type[] tables = AppDomain.CurrentDomain.GetAssemblies().SelectMany(x => x.GetTypes().Where(t => t.IsClass && !t.IsAbstract && typeof(IDatabase_Table).IsAssignableFrom(t))).ToArray();
-        await connection!.OpenAsync();
+        private SQLiteConnection? connection;
+        private Action<Exception, string?>? errorCallback;
 
-        var tableCreator = typeof(Database_ColumnMapper).GetMethod(nameof(Database_ColumnMapper.CreateTable));
+        private SemaphoreSlim _mutex = new SemaphoreSlim(1, 1);
 
-        foreach (Type tableType in tables)
+        public async Task Init(string location, Action<Exception, string?>? errorCallback = null, Assembly[]? customAssemblies = null)
         {
-            var invoker = tableCreator!.MakeGenericMethod(tableType);
-            string sql = (string)invoker.Invoke(null, null)!;
+            this.errorCallback = errorCallback;
 
-            using (SQLiteCommand command = new SQLiteCommand(sql, connection))
+            if (string.IsNullOrEmpty(location))
+                throw new Exception("Invalid path");
+
+            dbPath = location;
+
+            if (!File.Exists(dbPath))
             {
-                await command.ExecuteNonQueryAsync();
+                SQLiteConnection.CreateFile(dbPath);
+                connection = new SQLiteConnection(GetConnectionString());
             }
+
+            connection ??= new SQLiteConnection(GetConnectionString());
+
+            customAssemblies ??= AppDomain.CurrentDomain.GetAssemblies();
+
+            await GenerateTables(customAssemblies);
+            await HandleMigrations(customAssemblies);
         }
 
-        await connection.CloseAsync();
-    }
+        /* Database setup */
 
-
-    private static async Task HandleMigrations()
-    {
-        Type[] migrations = AppDomain.CurrentDomain.GetAssemblies().SelectMany(x => x.GetTypes().Where(t => t.IsClass && !t.IsAbstract && typeof(IDatabase_Migration).IsAssignableFrom(t))).ToArray();
-        long? lastMigration = null;
-
-        string? id = (await GetItem<dbo_Config>(SQLFilter.Equal(nameof(dbo_Config.key), IDatabase_Migration.CONFIG_MIGRATIONID)))?.value ?? null;
-
-        if (!string.IsNullOrEmpty(id))
+        private async Task GenerateTables(Assembly[] assemblies)
         {
-            lastMigration = long.Parse(id);
-        }
+            // cannot add or modify existing columns. way too advanced for this
 
-        IDatabase_Migration[] migrationsToApply = migrations.Select(x => (IDatabase_Migration)Activator.CreateInstance(x)!)
-            .Where(x => x.migrationId > (lastMigration ?? 0))
-            .OrderBy(x => x.migrationId).ToArray();
-
-
-        if (lastMigration.HasValue)
-        {
-            lastMigration = null;
+            Type[] tables = assemblies.SelectMany(x => x.GetTypes().Where(t => t.IsClass && !t.IsAbstract && typeof(IDatabase_Table).IsAssignableFrom(t))).ToArray();
             await connection!.OpenAsync();
 
-            foreach (IDatabase_Migration migration in migrationsToApply)
-            {
-                lastMigration = migration.migrationId;
+            var tableCreator = typeof(Database_ColumnMapper).GetMethod(nameof(Database_ColumnMapper.CreateTable));
 
-                using (SQLiteCommand command = new SQLiteCommand(migration.Up(), connection))
+            foreach (Type tableType in tables)
+            {
+                var invoker = tableCreator!.MakeGenericMethod(tableType);
+                string sql = (string)invoker.Invoke(null, null)!;
+
+                using (SQLiteCommand command = new SQLiteCommand(sql, connection))
                 {
                     await command.ExecuteNonQueryAsync();
                 }
@@ -97,263 +123,300 @@ public static class Database_Manager
 
             await connection.CloseAsync();
         }
-        else
+
+        private async Task HandleMigrations(Assembly[] assemblies)
         {
-            // migrations in this context are only to update existing database TABLES,
-            // as migrations are only for amending tables there is no need to do migration on a database that is has just been created
-            lastMigration = migrationsToApply.Length == 0 ? 0 : migrationsToApply[migrations.Length - 1].migrationId;
-        }
+            Type[] migrations = assemblies.SelectMany(x => x.GetTypes().Where(t => t.IsClass && !t.IsAbstract && typeof(IDatabase_Migration).IsAssignableFrom(t))).ToArray();
+            long? lastMigration = null;
 
-        if (lastMigration.HasValue)
-        {
-            await Delete<dbo_Config>(SQLFilter.Equal(nameof(dbo_Config.key), IDatabase_Migration.CONFIG_MIGRATIONID));
-            await InsertItem(new dbo_Config() { key = IDatabase_Migration.CONFIG_MIGRATIONID, value = lastMigration.Value.ToString() });
-        }
-    }
+            string? id = (await GetItem<dbo_Config>(SQLFilter.Equal(nameof(dbo_Config.key), IDatabase_Migration.CONFIG_MIGRATIONID)))?.value ?? null;
 
-
-
-
-
-    public static string GetGenericParameterName() => Guid.NewGuid().ToString().Replace("-", "");
-
-    public static async Task<bool> Exists<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? token = null) where T : IDatabase_Table
-        => (await GetItems<T>(filter, token))?.Length > 0; // replace with actual sql
-
-    public static async Task<T?> GetItem<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? token = null) where T : IDatabase_Table
-        => (await GetItems<T>(filter?.Limit(1) ?? SQLFilter.Limit(1), token)).FirstOrDefault();
-
-    public static async Task<(T[], int)> GetItemsWithCount<T>(string sql) where T : IDatabase_Table
-    {
-        int? rowCount = null;
-        return (await ExecuteSQLQuery<T>(sql, DeserializeRow, null), rowCount ?? 0);
-
-        async Task<T> DeserializeRow(SQLiteDataReader reader)
-        {
-            if (rowCount == null)
+            if (!string.IsNullOrEmpty(id))
             {
-                rowCount = Convert.ToInt32(reader["total_count"]);
+                lastMigration = long.Parse(id);
             }
 
-            return await Database_ColumnMapper.DeserializeRow<T>(reader);
-        }
-    }
+            IDatabase_Migration[] migrationsToApply = migrations.Select(x => (IDatabase_Migration)Activator.CreateInstance(x)!)
+                .Where(x => x.migrationId > (lastMigration ?? 0))
+                .OrderBy(x => x.migrationId).ToArray();
 
-    public static async Task<T[]> GetItemsGeneric<T>(string sql, Func<SQLiteDataReader, Task<T>> deserializer, CancellationToken? cancellationToken = null)
-    {
-        return await ExecuteSQLQuery<T>(sql, deserializer, cancellationToken);
-    }
 
-    public static async Task<T[]> GetItems<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? token = null) where T : IDatabase_Table
-    {
-        if (filter != null)
-        {
-            filter.Build(T.tableName, out string sql, out List<SQLiteParameter> args);
-            return await ExecuteSQLQuery(sql, Database_ColumnMapper.DeserializeRow<T>, token, args.ToArray());
-        }
-        else
-        {
-            return await ExecuteSQLQuery($"SELECT * FROM {T.tableName}", Database_ColumnMapper.DeserializeRow<T>, token);
-        }
-    }
-
-    public static async Task InsertItem<T>(params T[] entries) where T : IDatabase_Table
-    {
-        if (entries.Length == 0)
-            return;
-
-        Database_Column[] columns = T.getColumns.Where(x => !x.autoIncrement).ToArray();
-        List<string> rows = new List<string>();
-
-        List<SQLiteParameter> sqlParams = new List<SQLiteParameter>();
-
-        foreach (T row in entries)
-        {
-            List<string> paramNames = new List<string>();
-
-            foreach (Database_Column col in columns)
+            if (lastMigration.HasValue)
             {
-                if (col.autoIncrement)
+                lastMigration = null;
+                await connection!.OpenAsync();
+
+                foreach (IDatabase_Migration migration in migrationsToApply)
+                {
+                    lastMigration = migration.migrationId;
+
+                    using (SQLiteCommand command = new SQLiteCommand(migration.Up(), connection))
+                    {
+                        await command.ExecuteNonQueryAsync();
+                    }
+                }
+
+                await connection.CloseAsync();
+            }
+            else
+            {
+                // migrations in this context are only to update existing database TABLES,
+                // as migrations are only for amending tables there is no need to do migration on a database that is has just been created
+                lastMigration = migrationsToApply.Length == 0 ? 0 : migrationsToApply[migrations.Length - 1].migrationId;
+            }
+
+            if (lastMigration.HasValue)
+            {
+                await Delete<dbo_Config>(SQLFilter.Equal(nameof(dbo_Config.key), IDatabase_Migration.CONFIG_MIGRATIONID));
+                await InsertItem(new dbo_Config() { key = IDatabase_Migration.CONFIG_MIGRATIONID, value = lastMigration.Value.ToString() });
+            }
+        }
+
+        /* Database interaction */
+
+        public async Task<bool> Exists<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? token = null) where T : IDatabase_Table
+            => (await GetItems<T>(filter, token))?.Length > 0; // replace with actual sql
+
+        public async Task<T?> GetItem<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? token = null) where T : IDatabase_Table
+            => (await GetItems<T>(filter?.Limit(1) ?? SQLFilter.Limit(1), token)).FirstOrDefault();
+
+        public async Task<(T[], int)> GetItemsWithCount<T>(string sql) where T : IDatabase_Table
+        {
+            int? rowCount = null;
+            return (await ExecuteSQLQuery<T>(sql, DeserializeRow, null), rowCount ?? 0);
+
+            async Task<T> DeserializeRow(SQLiteDataReader reader)
+            {
+                if (rowCount == null)
+                {
+                    rowCount = Convert.ToInt32(reader["total_count"]);
+                }
+
+                return await Database_ColumnMapper.DeserializeRow<T>(reader);
+            }
+        }
+
+        public async Task<T[]> GetItemsGeneric<T>(string sql, Func<SQLiteDataReader, Task<T>> deserializer, CancellationToken? cancellationToken = null)
+        {
+            return await ExecuteSQLQuery<T>(sql, deserializer, cancellationToken);
+        }
+
+        public async Task<T[]> GetItems<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? token = null) where T : IDatabase_Table
+        {
+            if (filter != null)
+            {
+                filter.Build(T.tableName, out string sql, out List<SQLiteParameter> args);
+                return await ExecuteSQLQuery(sql, Database_ColumnMapper.DeserializeRow<T>, token, args.ToArray());
+            }
+            else
+            {
+                return await ExecuteSQLQuery($"SELECT * FROM {T.tableName}", Database_ColumnMapper.DeserializeRow<T>, token);
+            }
+        }
+
+        public async Task InsertItem<T>(params T[] entries) where T : IDatabase_Table
+        {
+            if (entries.Length == 0)
+                return;
+
+            Database_Column[] columns = T.getColumns.Where(x => !x.autoIncrement).ToArray();
+            List<string> rows = new List<string>();
+
+            List<SQLiteParameter> sqlParams = new List<SQLiteParameter>();
+
+            foreach (T row in entries)
+            {
+                List<string> paramNames = new List<string>();
+
+                foreach (Database_Column col in columns)
+                {
+                    if (col.autoIncrement)
+                        continue;
+
+                    string paramName = GetGenericParameterName();
+
+                    paramNames.Add($"@{paramName}");
+                    sqlParams.Add(new SQLiteParameter(paramName, Database_ColumnMapper.SerializeColumn<T>(row, col)));
+                }
+
+                rows.Add($"({string.Join(",", paramNames)})");
+            }
+
+            StringBuilder sql = new StringBuilder($"INSERT INTO {T.tableName} ({string.Join(",", columns.Select(x => x.columnName))}) VALUES");
+            sql.Append(string.Join(",", rows));
+
+            await ExecuteSQLNonQuery(sql.ToString(), null, sqlParams.ToArray());
+        }
+
+        public async Task Update<T>(T obj, SQLFilter.InternalSQLFilter? match, params string[] columns) where T : IDatabase_Table
+        {
+            StringBuilder sql = new StringBuilder($"UPDATE {T.tableName} SET ");
+
+            List<string> updates = new List<string>();
+            List<SQLiteParameter> sqlParams = new List<SQLiteParameter>();
+
+            Database_Column[] cols = T.getColumns;
+
+            foreach (Database_Column col in cols)
+            {
+                if (columns?.Length > 0 && !columns.Contains(col.columnName))
                     continue;
 
-                string paramName = GetGenericParameterName();
+                SQLiteParameter param = new SQLiteParameter(GetGenericParameterName(), Database_ColumnMapper.SerializeColumn<T>(obj, col));
 
-                paramNames.Add($"@{paramName}");
-                sqlParams.Add(new SQLiteParameter(paramName, Database_ColumnMapper.SerializeColumn<T>(row, col)));
+                updates.Add($"{col.columnName} = @{param.ParameterName}");
+                sqlParams.Add(param);
             }
 
-            rows.Add($"({string.Join(",", paramNames)})");
-        }
+            sql.Append(string.Join(",", updates));
 
-        StringBuilder sql = new StringBuilder($"INSERT INTO {T.tableName} ({string.Join(",", columns.Select(x => x.columnName))}) VALUES");
-        sql.Append(string.Join(",", rows));
-
-        await ExecuteSQLNonQuery(sql.ToString(), null, sqlParams.ToArray());
-    }
-
-    public static async Task Update<T>(T obj, SQLFilter.InternalSQLFilter? match, params string[] columns) where T : IDatabase_Table
-    {
-        StringBuilder sql = new StringBuilder($"UPDATE {T.tableName} SET ");
-
-        List<string> updates = new List<string>();
-        List<SQLiteParameter> sqlParams = new List<SQLiteParameter>();
-
-        Database_Column[] cols = T.getColumns;
-
-        foreach (Database_Column col in cols)
-        {
-            if (columns?.Length > 0 && !columns.Contains(col.columnName))
-                continue;
-
-            SQLiteParameter param = new SQLiteParameter(GetGenericParameterName(), Database_ColumnMapper.SerializeColumn<T>(obj, col));
-
-            updates.Add($"{col.columnName} = @{param.ParameterName}");
-            sqlParams.Add(param);
-        }
-
-        sql.Append(string.Join(",", updates));
-
-        if (match != null)
-        {
-            match.BuildGeneric(out string addition, out List<SQLiteParameter> extraArgs);
-            sqlParams.AddRange(extraArgs);
-
-            sql.Append(addition);
-        }
-
-        await ExecuteSQLNonQuery(sql.ToString(), null, sqlParams.ToArray());
-    }
-
-    public static async Task AddOrUpdate<T>(T[] objs, Func<T, SQLFilter.InternalSQLFilter>? match, params string[] columns) where T : IDatabase_Table
-    {
-        foreach (T obj in objs)
-        {
-            await AddOrUpdate(obj, match == null ? null : match(obj), columns);
-        }
-    }
-
-
-    public static async Task AddOrUpdate<T>(T obj, SQLFilter.InternalSQLFilter? match, params string[] columns) where T : IDatabase_Table
-    {
-        if (await Exists<T>(match))
-        {
-            await Update(obj, match, columns);
-        }
-        else
-        {
-            await InsertItem(obj);
-        }
-    }
-
-    public static async Task Delete<T>(SQLFilter.InternalSQLFilter? filter = null) where T : IDatabase_Table
-    {
-        StringBuilder sql = new StringBuilder($"DELETE FROM {T.tableName} ");
-        if (filter != null)
-        {
-            filter.BuildGeneric(out string where, out List<SQLiteParameter> args);
-            await ExecuteSQLNonQuery(sql.Append(where).ToString(), null, args.ToArray());
-        }
-        else
-        {
-            await ExecuteSQLNonQuery(sql.ToString(), null);
-        }
-    }
-
-    public static async Task<int> GetCount<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? cancellationToken = null) where T : IDatabase_Table
-    {
-        const string countName = "cnt";
-        StringBuilder sql = new StringBuilder($"select Count(*) as {countName} FROM {T.tableName}");
-
-        if (filter != null)
-        {
-            filter.BuildGeneric(out string clauses, out List<SQLiteParameter> args);
-            sql.Append(clauses);
-
-            return (await ExecuteSQLQuery(sql.ToString(), Parse, cancellationToken, args.ToArray()))[0];
-        }
-        else
-        {
-            return (await ExecuteSQLQuery(sql.ToString(), Parse, cancellationToken))[0];
-        }
-
-        Task<int> Parse(SQLiteDataReader reader) => Task.FromResult(Convert.ToInt32(reader[countName]));
-    }
-
-
-    /*
-        DB LOGIC
-    */
-
-
-    public static async Task ExecuteSQLNonQuery(string sql, CancellationToken? cancellationToken, params SQLiteParameter[] args)
-    {
-        cancellationToken ??= CancellationToken.None;
-
-        try
-        {
-            await _mutex.WaitAsync(cancellationToken.Value);
-            await connection!.OpenAsync(cancellationToken.Value);
-
-            using (SQLiteCommand cmd = new SQLiteCommand(sql, connection))
+            if (match != null)
             {
-                cmd.Parameters.AddRange(args);
-                await cmd.ExecuteNonQueryAsync(cancellationToken.Value);
+                match.BuildGeneric(out string addition, out List<SQLiteParameter> extraArgs);
+                sqlParams.AddRange(extraArgs);
+
+                sql.Append(addition);
+            }
+
+            await ExecuteSQLNonQuery(sql.ToString(), null, sqlParams.ToArray());
+        }
+
+        public async Task AddOrUpdate<T>(T[] objs, Func<T, SQLFilter.InternalSQLFilter>? match, params string[] columns) where T : IDatabase_Table
+        {
+            foreach (T obj in objs)
+            {
+                await AddOrUpdate(obj, match == null ? null : match(obj), columns);
             }
         }
-        catch (SQLiteException e)
-        {
-            errorCallback?.Invoke(e, sql);
-        }
-        catch (Exception e)
-        {
-            errorCallback?.Invoke(e, null);
-        }
-        finally
-        {
-            await connection!.CloseAsync();
-            _mutex.Release();
-        }
-    }
 
-    public static async Task<T[]> ExecuteSQLQuery<T>(string sql, Func<SQLiteDataReader, Task<T>> deserializer, CancellationToken? cancellationToken, params SQLiteParameter[]? args)
-    {
-        cancellationToken ??= CancellationToken.None;
-        List<T> res = new List<T>();
 
-        try
+        public async Task AddOrUpdate<T>(T obj, SQLFilter.InternalSQLFilter? match, params string[] columns) where T : IDatabase_Table
         {
-            await _mutex.WaitAsync(cancellationToken.Value);
-            await connection!.OpenAsync(cancellationToken.Value);
-
-            using (SQLiteCommand cmd = new SQLiteCommand(sql, connection))
+            if (await Exists<T>(match))
             {
-                if (args?.Length > 0)
-                    cmd.Parameters.AddRange(args);
+                await Update(obj, match, columns);
+            }
+            else
+            {
+                await InsertItem(obj);
+            }
+        }
 
-                using (SQLiteDataReader reader = (SQLiteDataReader)await cmd.ExecuteReaderAsync(cancellationToken.Value))
+        public async Task Delete<T>(SQLFilter.InternalSQLFilter? filter = null) where T : IDatabase_Table
+        {
+            StringBuilder sql = new StringBuilder($"DELETE FROM {T.tableName} ");
+            if (filter != null)
+            {
+                filter.BuildGeneric(out string where, out List<SQLiteParameter> args);
+                await ExecuteSQLNonQuery(sql.Append(where).ToString(), null, args.ToArray());
+            }
+            else
+            {
+                await ExecuteSQLNonQuery(sql.ToString(), null);
+            }
+        }
+
+        public async Task<int> GetCount<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? cancellationToken = null) where T : IDatabase_Table
+        {
+            const string countName = "cnt";
+            StringBuilder sql = new StringBuilder($"select Count(*) as {countName} FROM {T.tableName}");
+
+            if (filter != null)
+            {
+                filter.BuildGeneric(out string clauses, out List<SQLiteParameter> args);
+                sql.Append(clauses);
+
+                return (await ExecuteSQLQuery(sql.ToString(), Parse, cancellationToken, args.ToArray()))[0];
+            }
+            else
+            {
+                return (await ExecuteSQLQuery(sql.ToString(), Parse, cancellationToken))[0];
+            }
+
+            Task<int> Parse(SQLiteDataReader reader) => Task.FromResult(Convert.ToInt32(reader[countName]));
+        }
+
+
+        /*
+            DB LOGIC
+        */
+
+
+        public async Task ExecuteSQLNonQuery(string sql, CancellationToken? cancellationToken, params SQLiteParameter[] args)
+        {
+            cancellationToken ??= CancellationToken.None;
+
+            try
+            {
+                await _mutex.WaitAsync(cancellationToken.Value);
+                await connection!.OpenAsync(cancellationToken.Value);
+
+                using (SQLiteCommand cmd = new SQLiteCommand(sql, connection))
                 {
-                    while (await reader.ReadAsync(cancellationToken.Value))
+                    cmd.Parameters.AddRange(args);
+                    await cmd.ExecuteNonQueryAsync(cancellationToken.Value);
+                }
+            }
+            catch (SQLiteException e)
+            {
+                errorCallback?.Invoke(e, sql);
+            }
+            catch (Exception e)
+            {
+                errorCallback?.Invoke(e, null);
+            }
+            finally
+            {
+                await connection!.CloseAsync();
+                _mutex.Release();
+            }
+        }
+
+        public async Task<T[]> ExecuteSQLQuery<T>(string sql, Func<SQLiteDataReader, Task<T>> deserializer, CancellationToken? cancellationToken, params SQLiteParameter[]? args)
+        {
+            cancellationToken ??= CancellationToken.None;
+            List<T> res = new List<T>();
+
+            try
+            {
+                await _mutex.WaitAsync(cancellationToken.Value);
+                await connection!.OpenAsync(cancellationToken.Value);
+
+                using (SQLiteCommand cmd = new SQLiteCommand(sql, connection))
+                {
+                    if (args?.Length > 0)
+                        cmd.Parameters.AddRange(args);
+
+                    using (SQLiteDataReader reader = (SQLiteDataReader)await cmd.ExecuteReaderAsync(cancellationToken.Value))
                     {
-                        T deserializedResult = await deserializer(reader);
-                        res.Add(deserializedResult);
+                        while (await reader.ReadAsync(cancellationToken.Value))
+                        {
+                            T deserializedResult = await deserializer(reader);
+                            res.Add(deserializedResult);
+                        }
                     }
                 }
             }
-        }
-        catch (SQLiteException e)
-        {
-            errorCallback?.Invoke(e, sql);
-        }
-        catch (Exception e)
-        {
-            errorCallback?.Invoke(e, null);
-        }
-        finally
-        {
-            await connection!.CloseAsync();
-            _mutex.Release();
+            catch (SQLiteException e)
+            {
+                errorCallback?.Invoke(e, sql);
+            }
+            catch (Exception e)
+            {
+                errorCallback?.Invoke(e, null);
+            }
+            finally
+            {
+                await connection!.CloseAsync();
+                _mutex.Release();
+            }
+
+            return res.ToArray();
         }
 
-        return res.ToArray();
+        public void Dispose()
+        {
+            connection!.Close();
+        }
     }
 }
