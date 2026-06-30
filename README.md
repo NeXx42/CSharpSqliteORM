@@ -1,4 +1,5 @@
 A very simple Sqlite ORM for C#. A projet i made to handle my small projects that require a barebones interface with a sqlite database.
+[![NuGet](https://img.shields.io/nuget/v/Nexx.CSharpSqliteORM.svg)](https://www.nuget.org/packages/Nexx.CSharpSqliteORM)
 
 ## Examples of syntax 
 
