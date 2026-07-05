@@ -24,45 +24,57 @@ public static class Database_Manager
 
     public static string GetGenericParameterName() => Guid.NewGuid().ToString().Replace("-", "");
 
+    [Obsolete("Use the instance version and handle static instances outside of here. New functions will not be added here")]
     public static async Task<int> GetCount<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? cancellationToken = null) where T : IDatabase_Table
-        => await instance!.GetCount<T>(filter, cancellationToken);
+            => await instance!.GetCount<T>(filter, cancellationToken);
 
+    [Obsolete("Use the instance version and handle static instances outside of here. New functions will not be added here")]
     public static async Task Delete<T>(SQLFilter.InternalSQLFilter? filter = null) where T : IDatabase_Table
-        => await instance!.Delete<T>(filter);
+               => await instance!.Delete<T>(filter);
 
+    [Obsolete("Use the instance version and handle static instances outside of here. New functions will not be added here")]
     public static async Task AddOrUpdate<T>(T obj, SQLFilter.InternalSQLFilter? match, params string[] columns) where T : IDatabase_Table
-        => await instance!.AddOrUpdate<T>(obj, match, columns);
+               => await instance!.AddOrUpdate<T>(obj, match, columns);
 
+    [Obsolete("Use the instance version and handle static instances outside of here. New functions will not be added here")]
     public static async Task AddOrUpdate<T>(IEnumerable<T> objs, Func<T, SQLFilter.InternalSQLFilter>? match, params string[] columns) where T : IDatabase_Table
-        => await instance!.AddOrUpdate<T>(objs, match, columns);
+               => await instance!.AddOrUpdate<T>(objs, match, columns);
 
+    [Obsolete("Use the instance version and handle static instances outside of here. New functions will not be added here")]
     public static async Task Update<T>(T obj, SQLFilter.InternalSQLFilter? match, params string[] columns) where T : IDatabase_Table
-        => await instance!.Update<T>(obj, match, columns);
+               => await instance!.Update<T>(obj, match, columns);
 
+    [Obsolete("Use the instance version and handle static instances outside of here. New functions will not be added here")]
     public static async Task InsertItem<T>(params IEnumerable<T> entries) where T : IDatabase_Table
-        => await instance!.InsertItem<T>(entries);
+               => await instance!.InsertItem<T>(entries);
 
+    [Obsolete("Use the instance version and handle static instances outside of here. New functions will not be added here")]
     public static async Task<T[]> GetItems<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? token = null) where T : IDatabase_Table
-        => await instance!.GetItems<T>(filter, token);
+               => await instance!.GetItems<T>(filter, token);
 
+    [Obsolete("Use the instance version and handle static instances outside of here. New functions will not be added here")]
     public static async Task<T[]> GetItemsGeneric<T>(string sql, Func<SQLiteDataReader, Task<T>> deserializer, CancellationToken? cancellationToken = null)
-        => await instance!.GetItemsGeneric<T>(sql, deserializer, cancellationToken);
+               => await instance!.GetItemsGeneric<T>(sql, deserializer, cancellationToken);
 
+    [Obsolete("Use the instance version and handle static instances outside of here. New functions will not be added here")]
     public static async Task<(T[], int)> GetItemsWithCount<T>(string sql) where T : IDatabase_Table
-        => await instance!.GetItemsWithCount<T>(sql);
+               => await instance!.GetItemsWithCount<T>(sql);
 
+    [Obsolete("Use the instance version and handle static instances outside of here. New functions will not be added here")]
     public static async Task<T?> GetItem<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? token = null) where T : IDatabase_Table
-        => await instance!.GetItem<T>(filter, token);
+               => await instance!.GetItem<T>(filter, token);
 
+    [Obsolete("Use the instance version and handle static instances outside of here. New functions will not be added here")]
     public static async Task<bool> Exists<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? token = null) where T : IDatabase_Table
-        => await instance!.Exists<T>(filter, token);
+               => await instance!.Exists<T>(filter, token);
 
-
+    [Obsolete("Use the instance version and handle static instances outside of here. New functions will not be added here")]
     public static async Task<T[]> ExecuteSQLQuery<T>(string sql, Func<SQLiteDataReader, Task<T>> deserializer, CancellationToken? cancellationToken, params SQLiteParameter[]? args)
-        => await instance!.ExecuteSQLQuery<T>(sql, deserializer, cancellationToken, args);
+               => await instance!.ExecuteSQLQuery<T>(sql, deserializer, cancellationToken, args);
 
+    [Obsolete("Use the instance version and handle static instances outside of here. New functions will not be added here")]
     public static async Task ExecuteSQLNonQuery(string sql, CancellationToken? cancellationToken, params SQLiteParameter[] args)
-        => await instance!.ExecuteSQLNonQuery(sql, cancellationToken, args);
+               => await instance!.ExecuteSQLNonQuery(sql, cancellationToken, args);
 
 
 
@@ -246,6 +258,11 @@ public static class Database_Manager
             sql.Append(string.Join(",", rows));
 
             await ExecuteSQLNonQuery(sql.ToString(), null, sqlParams.ToArray());
+        }
+
+        public async Task Update<T>(IEnumerable<T> objs, Func<T, SQLFilter.InternalSQLFilter> match, params string[] columns) where T : IDatabase_Table
+        {
+            await Task.WhenAll(objs.Select(o => Update(o, match(o), columns)));
         }
 
         public async Task Update<T>(T obj, SQLFilter.InternalSQLFilter? match, params string[] columns) where T : IDatabase_Table
