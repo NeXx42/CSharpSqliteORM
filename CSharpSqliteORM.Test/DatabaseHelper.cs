@@ -13,11 +13,13 @@ public class DatabaseHelper : IDisposable
         instance = new Database_Manager.DatabaseInstance();
     }
 
-    public async Task Init<T>(T[] testData) where T : IDatabase_Table
+    public async Task InitWithData<T>(T[] testData) where T : IDatabase_Table
     {
-        await instance.Init(path, Thrower);
+        await Init();
         await instance.InsertItem(testData);
     }
+
+    public async Task Init() => await instance.Init(path, Thrower);
 
     private void Thrower(Exception e, string? msg)
     {

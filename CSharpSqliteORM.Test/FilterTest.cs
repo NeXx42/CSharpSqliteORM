@@ -8,7 +8,7 @@ public class FilterTest
     public async Task FilterTest_Equals()
     {
         using DatabaseHelper db = new DatabaseHelper();
-        await db.Init([
+        await db.InitWithData([
             new dbo_BasicTestPlatform() { intTest = 0, stringTest = "a" },
             new dbo_BasicTestPlatform() { intTest = 1, stringTest = "b" },
             new dbo_BasicTestPlatform() { intTest = 2, stringTest = "c" },
@@ -30,7 +30,7 @@ public class FilterTest
     public async Task FilterTest_In()
     {
         using DatabaseHelper db = new DatabaseHelper();
-        await db.Init([
+        await db.InitWithData([
             new dbo_BasicTestPlatform() { intTest = 0, stringTest = "a" },
             new dbo_BasicTestPlatform() { intTest = 1, stringTest = "b" },
             new dbo_BasicTestPlatform() { intTest = 2, stringTest = "c" },
@@ -58,5 +58,30 @@ public class FilterTest
 
         Assert.Equal(7, items[0].intTest);
         Assert.Equal(8, items[1].intTest);
+    }
+
+    [Fact]
+    public async Task InsertTest_AddOrUpdate()
+    {
+        using DatabaseHelper db = new DatabaseHelper();
+        await db.InitWithData([
+            new dbo_BasicTestPlatform() { intTest = 0, stringTest = "a" },
+        ]);
+
+        dbo_BasicTestPlatform[] changes = [
+            new dbo_BasicTestPlatform() { intTest = 0, stringTest = "Changed", stringTest2 = "unchanged" },
+            new dbo_BasicTestPlatform() { intTest = 1, stringTest = "a", stringTest2 = "unchanged" },
+            new dbo_BasicTestPlatform() { intTest = 2, stringTest = "b", stringTest2 = "unchanged" },
+        ];
+
+        await db.instance.AddOrUpdate(changes, c => SQLFilter.Equal(nameof(dbo_BasicTestPlatform.intTest), c.intTest), nameof(dbo_BasicTestPlatform.stringTest));
+        dbo_BasicTestPlatform[] results = await db.instance.GetItems<dbo_BasicTestPlatform>();
+
+        Assert.Equal(3, results.Length);
+        Assert.Equal("Changed", results.FirstOrDefault(r => r.intTest == 0)!.stringTest);
+        Assert.Null(results.FirstOrDefault(r => r.intTest == 0)!.stringTest2);
+
+        Assert.Equal("a", results.FirstOrDefault(r => r.intTest == 1)!.stringTest);
+        Assert.Equal("b", results.FirstOrDefault(r => r.intTest == 2)!.stringTest);
     }
 }

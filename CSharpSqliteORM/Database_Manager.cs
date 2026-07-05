@@ -33,13 +33,13 @@ public static class Database_Manager
     public static async Task AddOrUpdate<T>(T obj, SQLFilter.InternalSQLFilter? match, params string[] columns) where T : IDatabase_Table
         => await instance!.AddOrUpdate<T>(obj, match, columns);
 
-    public static async Task AddOrUpdate<T>(T[] objs, Func<T, SQLFilter.InternalSQLFilter>? match, params string[] columns) where T : IDatabase_Table
+    public static async Task AddOrUpdate<T>(IEnumerable<T> objs, Func<T, SQLFilter.InternalSQLFilter>? match, params string[] columns) where T : IDatabase_Table
         => await instance!.AddOrUpdate<T>(objs, match, columns);
 
     public static async Task Update<T>(T obj, SQLFilter.InternalSQLFilter? match, params string[] columns) where T : IDatabase_Table
         => await instance!.Update<T>(obj, match, columns);
 
-    public static async Task InsertItem<T>(params T[] entries) where T : IDatabase_Table
+    public static async Task InsertItem<T>(params IEnumerable<T> entries) where T : IDatabase_Table
         => await instance!.InsertItem<T>(entries);
 
     public static async Task<T[]> GetItems<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? token = null) where T : IDatabase_Table
@@ -214,9 +214,9 @@ public static class Database_Manager
             }
         }
 
-        public async Task InsertItem<T>(params T[] entries) where T : IDatabase_Table
+        public async Task InsertItem<T>(params IEnumerable<T> entries) where T : IDatabase_Table
         {
-            if (entries.Length == 0)
+            if (entries.Count() == 0)
                 return;
 
             Database_Column[] columns = T.getColumns.Where(x => !x.autoIncrement).ToArray();
@@ -281,7 +281,7 @@ public static class Database_Manager
             await ExecuteSQLNonQuery(sql.ToString(), null, sqlParams.ToArray());
         }
 
-        public async Task AddOrUpdate<T>(T[] objs, Func<T, SQLFilter.InternalSQLFilter>? match, params string[] columns) where T : IDatabase_Table
+        public async Task AddOrUpdate<T>(IEnumerable<T> objs, Func<T, SQLFilter.InternalSQLFilter>? match, params string[] columns) where T : IDatabase_Table
         {
             foreach (T obj in objs)
             {
