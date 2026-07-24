@@ -19,6 +19,7 @@ public class DatabaseHelper : IDisposable
         await instance.InsertItem(testData);
     }
 
+    public async Task Init(Action<Exception, string?> thrower) => await instance.Init(path, thrower);
     public async Task Init() => await instance.Init(path, Thrower);
 
     private void Thrower(Exception e, string? msg)
