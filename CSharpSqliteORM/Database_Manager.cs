@@ -374,14 +374,8 @@ public static class Database_Manager
                     await cmd.ExecuteNonQueryAsync(cancellationToken.Value);
                 }
             }
-            catch (SQLiteException e)
-            {
-                errorCallback?.Invoke(e, sql);
-            }
-            catch (Exception e)
-            {
-                errorCallback?.Invoke(e, null);
-            }
+            catch (SQLiteException e) { HandleException(e); }
+            catch (Exception e) { HandleException(e); }
             finally
             {
                 await connection!.CloseAsync();
@@ -414,14 +408,8 @@ public static class Database_Manager
                     }
                 }
             }
-            catch (SQLiteException e)
-            {
-                errorCallback?.Invoke(e, sql);
-            }
-            catch (Exception e)
-            {
-                errorCallback?.Invoke(e, null);
-            }
+            catch (SQLiteException e) { HandleException(e); }
+            catch (Exception e) { HandleException(e); }
             finally
             {
                 await connection!.CloseAsync();
@@ -429,6 +417,22 @@ public static class Database_Manager
             }
 
             return res.ToArray();
+        }
+
+        private void HandleException(SQLiteException e)
+        {
+            if (errorCallback == null)
+                throw e;
+
+            errorCallback?.Invoke(e, null);
+        }
+
+        private void HandleException(Exception e)
+        {
+            if (errorCallback == null)
+                throw e;
+
+            errorCallback?.Invoke(e, null);
         }
 
         public void Dispose()
