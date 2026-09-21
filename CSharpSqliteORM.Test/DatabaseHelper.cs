@@ -5,12 +5,12 @@ namespace CSharpSqliteORM.Test;
 public class DatabaseHelper : IDisposable
 {
     private string path;
-    public Database_Manager.DatabaseInstance instance { private set; get; }
+    public Database_Instance instance { private set; get; }
 
     public DatabaseHelper()
     {
         path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.db");
-        instance = new Database_Manager.DatabaseInstance();
+        instance = new Database_Instance();
     }
 
     public async Task InitWithData<T>(T[] testData) where T : IDatabase_Table

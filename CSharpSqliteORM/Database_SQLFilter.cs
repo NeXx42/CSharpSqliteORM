@@ -1,4 +1,5 @@
 using System.Data.SQLite;
+using System.Linq.Expressions;
 using System.Text;
 
 namespace CSharpSqliteORM;
@@ -9,7 +10,10 @@ public static class SQLFilter
     public static InternalSQLFilter In<T>(string columnName, IEnumerable<T> vals) => new InternalSQLFilter().In(columnName, vals);
 
     public static InternalSQLFilter IsNull(string columnName) => new InternalSQLFilter().IsNull(columnName);
+
     public static InternalSQLFilter Limit(int to) => new InternalSQLFilter().Limit(to);
+    public static InternalSQLFilter Skip(int skip) => new InternalSQLFilter().Skip(skip);
+
     public static InternalSQLFilter OrderDesc(string columnName) => new InternalSQLFilter().OrderDesc(columnName);
     public static InternalSQLFilter OrderAsc(string columnName) => new InternalSQLFilter().OrderAsc(columnName);
 
@@ -19,12 +23,13 @@ public static class SQLFilter
         public List<string> orderClauses = new List<string>();
 
         public int? limitAmount;
+        public int? skipAmount;
 
         public List<SQLiteParameter> arguments = new List<SQLiteParameter>();
 
         public InternalSQLFilter Equal(string columnName, object val)
         {
-            SQLiteParameter arg = new SQLiteParameter(Database_Manager.GetGenericParameterName(), val);
+            SQLiteParameter arg = new SQLiteParameter(Database_Instance.GetGenericParameterName(), val);
             whereClauses.Add($"{columnName} = @{arg.ParameterName}");
             arguments.Add(arg);
 
@@ -46,7 +51,7 @@ public static class SQLFilter
 
             for (int i = 0; i < count; i++)
             {
-                param = new SQLiteParameter(Database_Manager.GetGenericParameterName(), vals.ElementAt(i));
+                param = new SQLiteParameter(Database_Instance.GetGenericParameterName(), vals.ElementAt(i));
 
                 whereClause.Append($"@{param.ParameterName}");
                 arguments.Add(param);
@@ -70,6 +75,12 @@ public static class SQLFilter
         public InternalSQLFilter Limit(int to)
         {
             limitAmount = to;
+            return this;
+        }
+
+        public InternalSQLFilter Skip(int amount)
+        {
+            skipAmount = amount;
             return this;
         }
 
@@ -113,6 +124,14 @@ public static class SQLFilter
             if (limitAmount != null)
             {
                 sql.Append($" LIMIT {limitAmount.Value}");
+            }
+
+            if (skipAmount != null)
+            {
+                if (!limitAmount.HasValue)
+                    sql.Append(" LIMIT -1");
+
+                sql.Append($" OFFSET {skipAmount.Value}");
             }
 
             args = this.arguments;

@@ -61,33 +61,7 @@ public class FilterTest
     }
 
     [Fact]
-    public async Task UpdateTest_AddOrUpdate()
-    {
-        using DatabaseHelper db = new DatabaseHelper();
-        await db.InitWithData([
-            new dbo_BasicTestPlatform() { intTest = 0, stringTest = "a" },
-        ]);
-
-        dbo_BasicTestPlatform[] changes = [
-            new dbo_BasicTestPlatform() { intTest = 0, stringTest = "Changed", stringTest2 = "unchanged" },
-            new dbo_BasicTestPlatform() { intTest = 1, stringTest = "a", stringTest2 = "unchanged" },
-            new dbo_BasicTestPlatform() { intTest = 2, stringTest = "b", stringTest2 = "unchanged" },
-        ];
-
-        await db.instance.AddOrUpdate(changes, c => SQLFilter.Equal(nameof(dbo_BasicTestPlatform.intTest), c.intTest), nameof(dbo_BasicTestPlatform.stringTest));
-        dbo_BasicTestPlatform[] results = await db.instance.GetItems<dbo_BasicTestPlatform>();
-
-        Assert.Equal(3, results.Length);
-
-        Assert.Equal("Changed", results.Single(r => r.intTest == 0)!.stringTest);
-        Assert.Null(results.Single(r => r.intTest == 0)!.stringTest2);
-
-        Assert.Equal("a", results.Single(r => r.intTest == 1)!.stringTest);
-        Assert.Equal("b", results.Single(r => r.intTest == 2)!.stringTest);
-    }
-
-    [Fact]
-    public async Task UpdateTest_UpdateMultiple()
+    public async Task FilterTest_Skip()
     {
         using DatabaseHelper db = new DatabaseHelper();
         await db.InitWithData([
@@ -95,32 +69,74 @@ public class FilterTest
             new dbo_BasicTestPlatform() { intTest = 1, stringTest = "b" },
             new dbo_BasicTestPlatform() { intTest = 2, stringTest = "c" },
             new dbo_BasicTestPlatform() { intTest = 3, stringTest = "d" },
+            new dbo_BasicTestPlatform() { intTest = 4, stringTest = "e" },
+            new dbo_BasicTestPlatform() { intTest = 5, stringTest = "f" },
+            new dbo_BasicTestPlatform() { intTest = 6, stringTest = "g" },
+            new dbo_BasicTestPlatform() { intTest = 7, stringTest = "h" },
+            new dbo_BasicTestPlatform() { intTest = 8, stringTest = "i" },
         ]);
 
-        await db.instance.Update([
-            new dbo_BasicTestPlatform() { intTest = 1, stringTest = "change", stringTest2 = "unchanged" },
-            new dbo_BasicTestPlatform() { intTest = 2, stringTest = "change", stringTest2 = "unchanged" },
-            new dbo_BasicTestPlatform() { intTest = 9999999, stringTest = "INVALID", stringTest2 = "INVALID" },
-        ], c => SQLFilter.Equal(nameof(dbo_BasicTestPlatform.intTest), c.intTest), [nameof(dbo_BasicTestPlatform.stringTest)]);
+        dbo_BasicTestPlatform[] items = await db.instance.GetItems<dbo_BasicTestPlatform>(SQLFilter.Skip(5).OrderAsc(nameof(dbo_BasicTestPlatform.intTest)));
 
-        dbo_BasicTestPlatform[] results = await db.instance.GetItems<dbo_BasicTestPlatform>();
+        Assert.NotNull(items);
+        Assert.Equal(4, items.Length);
 
-        Assert.Equal(4, results.Length);
+        Assert.Equal("f", items[0].stringTest);
+        Assert.Equal("g", items[1].stringTest);
+        Assert.Equal("h", items[2].stringTest);
+        Assert.Equal("i", items[3].stringTest);
+    }
 
-        Assert.Equal("a", results.Single(r => r.intTest == 0).stringTest);
+    [Fact]
+    public async Task FilterTest_Take()
+    {
+        using DatabaseHelper db = new DatabaseHelper();
+        await db.InitWithData([
+            new dbo_BasicTestPlatform() { intTest = 0, stringTest = "a" },
+            new dbo_BasicTestPlatform() { intTest = 1, stringTest = "b" },
+            new dbo_BasicTestPlatform() { intTest = 2, stringTest = "c" },
+            new dbo_BasicTestPlatform() { intTest = 3, stringTest = "d" },
+            new dbo_BasicTestPlatform() { intTest = 4, stringTest = "e" },
+            new dbo_BasicTestPlatform() { intTest = 5, stringTest = "f" },
+            new dbo_BasicTestPlatform() { intTest = 6, stringTest = "g" },
+            new dbo_BasicTestPlatform() { intTest = 7, stringTest = "h" },
+            new dbo_BasicTestPlatform() { intTest = 8, stringTest = "i" },
+        ]);
 
-        Assert.Equal("change", results.Single(r => r.intTest == 1).stringTest);
-        Assert.Equal("change", results.Single(r => r.intTest == 2).stringTest);
-        Assert.Null(results.Single(r => r.intTest == 1).stringTest2);
+        dbo_BasicTestPlatform[] items = await db.instance.GetItems<dbo_BasicTestPlatform>(SQLFilter.Limit(5).OrderAsc(nameof(dbo_BasicTestPlatform.intTest)));
 
-        await db.instance.Update([
-            new dbo_BasicTestPlatform() { intTest = 0, stringTest = "a", stringTest2 = "b" }
-        ], c => SQLFilter.Equal(nameof(dbo_BasicTestPlatform.intTest), c.intTest));
+        Assert.NotNull(items);
+        Assert.Equal(5, items.Length);
 
-        dbo_BasicTestPlatform result = (await db.instance.GetItem<dbo_BasicTestPlatform>(SQLFilter.Equal(nameof(dbo_BasicTestPlatform.intTest), 0)))!;
+        Assert.Equal("a", items[0].stringTest);
+        Assert.Equal("b", items[1].stringTest);
+        Assert.Equal("c", items[2].stringTest);
+        Assert.Equal("d", items[3].stringTest);
+        Assert.Equal("e", items[4].stringTest);
+    }
 
-        Assert.Equal(0, result.intTest);
-        Assert.Equal("a", result.stringTest);
-        Assert.Equal("b", result.stringTest2);
+    [Fact]
+    public async Task FilterTest_SkipTake()
+    {
+        using DatabaseHelper db = new DatabaseHelper();
+        await db.InitWithData([
+            new dbo_BasicTestPlatform() { intTest = 0, stringTest = "a" },
+            new dbo_BasicTestPlatform() { intTest = 1, stringTest = "b" },
+            new dbo_BasicTestPlatform() { intTest = 2, stringTest = "c" },
+            new dbo_BasicTestPlatform() { intTest = 3, stringTest = "d" },
+            new dbo_BasicTestPlatform() { intTest = 4, stringTest = "e" },
+            new dbo_BasicTestPlatform() { intTest = 5, stringTest = "f" },
+            new dbo_BasicTestPlatform() { intTest = 6, stringTest = "g" },
+            new dbo_BasicTestPlatform() { intTest = 7, stringTest = "h" },
+            new dbo_BasicTestPlatform() { intTest = 8, stringTest = "i" },
+        ]);
+
+        dbo_BasicTestPlatform[] items = await db.instance.GetItems<dbo_BasicTestPlatform>(SQLFilter.Skip(5).Limit(2).OrderAsc(nameof(dbo_BasicTestPlatform.intTest)));
+
+        Assert.NotNull(items);
+        Assert.Equal(2, items.Length);
+
+        Assert.Equal("f", items[0].stringTest);
+        Assert.Equal("g", items[1].stringTest);
     }
 }
