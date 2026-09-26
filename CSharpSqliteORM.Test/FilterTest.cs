@@ -139,4 +139,30 @@ public class FilterTest
         Assert.Equal("f", items[0].stringTest);
         Assert.Equal("g", items[1].stringTest);
     }
+
+    [Fact]
+    public async Task FilterTest_Like()
+    {
+        using DatabaseHelper db = new DatabaseHelper();
+        await db.InitWithData([
+            new dbo_BasicTestPlatform() { intTest = 0, stringTest = "RANDOM TEXT" },
+            new dbo_BasicTestPlatform() { intTest = 1, stringTest = "WHAT DOES THIS MEAN" },
+            new dbo_BasicTestPlatform() { intTest = 2, stringTest = "A QUICK BROWN FOX" },
+            new dbo_BasicTestPlatform() { intTest = 3, stringTest = "NEW GENERATION 50" },
+            new dbo_BasicTestPlatform() { intTest = 4, stringTest = "RANDOM TEXT 2" },
+        ]);
+
+        dbo_BasicTestPlatform[] items = await db.instance.GetItems<dbo_BasicTestPlatform>(SQLFilter.Like(nameof(dbo_BasicTestPlatform.stringTest), "%BROWN%"));
+
+        Assert.NotNull(items);
+        Assert.Single(items);
+        Assert.Equal(2, items[0].intTest);
+
+        items = await db.instance.GetItems<dbo_BasicTestPlatform>(SQLFilter.Like(nameof(dbo_BasicTestPlatform.stringTest), "RANDOM %").OrderAsc(nameof(dbo_BasicTestPlatform.intTest)));
+
+        Assert.NotNull(items);
+        Assert.Equal(2, items.Length);
+        Assert.Equal(0, items[0].intTest);
+        Assert.Equal(4, items[1].intTest);
+    }
 }

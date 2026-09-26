@@ -6,6 +6,7 @@ namespace CSharpSqliteORM;
 
 public static class SQLFilter
 {
+    public static InternalSQLFilter Like(string columnName, object val) => new InternalSQLFilter().Like(columnName, val);
     public static InternalSQLFilter Equal(string columnName, object val) => new InternalSQLFilter().Equal(columnName, val);
     public static InternalSQLFilter In<T>(string columnName, IEnumerable<T> vals) => new InternalSQLFilter().In(columnName, vals);
 
@@ -26,6 +27,15 @@ public static class SQLFilter
         public int? skipAmount;
 
         public List<SQLiteParameter> arguments = new List<SQLiteParameter>();
+
+        public InternalSQLFilter Like(string columnName, object val)
+        {
+            SQLiteParameter arg = new SQLiteParameter(Database_Instance.GetGenericParameterName(), val);
+            whereClauses.Add($"{columnName} like @{arg.ParameterName}");
+            arguments.Add(arg);
+
+            return this;
+        }
 
         public InternalSQLFilter Equal(string columnName, object val)
         {
