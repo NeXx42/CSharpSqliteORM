@@ -307,7 +307,7 @@ public class Database_Instance : IDisposable
                 await cmd.ExecuteNonQueryAsync(cancellationToken.Value);
             }
         }
-        catch (SQLiteException e) { HandleException(e); }
+        catch (SQLiteException e) { HandleException(e, sql); }
         catch (Exception e) { HandleException(e); }
         finally
         {
@@ -341,7 +341,7 @@ public class Database_Instance : IDisposable
                 }
             }
         }
-        catch (SQLiteException e) { HandleException(e); }
+        catch (SQLiteException e) { HandleException(e, sql); }
         catch (Exception e) { HandleException(e); }
         finally
         {
@@ -352,7 +352,7 @@ public class Database_Instance : IDisposable
         return res.ToArray();
     }
 
-    private void HandleException(SQLiteException e)
+    private void HandleException(SQLiteException e, string sql)
     {
         if (errorCallback == null)
             throw e;

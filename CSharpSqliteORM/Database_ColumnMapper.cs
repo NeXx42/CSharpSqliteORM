@@ -116,14 +116,19 @@ public static class Database_ColumnMapper
         if (val == DBNull.Value)
             return null;
 
+        Type endBaseType = Nullable.GetUnderlyingType(endType) ?? endType;
+
         switch (columnType)
         {
             case Database_ColumnType.GUID:
                 return Guid.Parse((string)val);
 
             case Database_ColumnType.INTEGER:
-                if (endType == typeof(long))
+                if (endBaseType == typeof(long))
                     return Convert.ToInt64(val);
+
+                if (endBaseType.IsEnum)
+                    return Enum.ToObject(endBaseType, val);
 
                 return Convert.ToInt32(val);
 
@@ -140,15 +145,21 @@ public static class Database_ColumnMapper
         PropertyInfo? prop = typeof(T).GetProperty(column.columnName);
         object? obj = prop?.GetValue(row);
 
+        Type propType = Nullable.GetUnderlyingType(prop!.PropertyType) ?? prop!.PropertyType;
+
         if (obj != null)
         {
-            if (prop!.PropertyType == typeof(DateTime))
+            if (propType == typeof(DateTime))
             {
                 obj = ((DateTime)obj).ToString();
             }
-            else if (prop!.PropertyType == typeof(Guid))
+            else if (propType == typeof(Guid))
             {
                 obj = ((Guid)obj).ToString();
+            }
+            else if (propType.IsEnum)
+            {
+                obj = (int)obj;
             }
         }
 
