@@ -49,7 +49,7 @@ public class Database_Instance : IDisposable
     {
         // cannot add or modify existing columns. way too advanced for this
 
-        Type[] tables = assemblies.SelectMany(x => x.GetTypes().Where(t => t.IsClass && !t.IsAbstract && typeof(IDatabase_Table).IsAssignableFrom(t))).ToArray();
+        Type[] tables = assemblies.SelectMany(x => x.GetTypes().Where(t => t.IsClass && !t.IsAbstract && typeof(IDatabase_TableMain).IsAssignableFrom(t))).ToArray();
         await connection!.OpenAsync();
 
         var tableCreator = typeof(Database_ColumnMapper).GetMethod(nameof(Database_ColumnMapper.CreateTable));
@@ -118,13 +118,13 @@ public class Database_Instance : IDisposable
 
     /* Database interaction */
 
-    public async Task<bool> Exists<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? token = null) where T : IDatabase_Table
+    public async Task<bool> Exists<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? token = null) where T : IDatabase_TableMain
         => (await GetItems<T>(filter, token))?.Length > 0; // replace with actual sql
 
-    public async Task<T?> GetItem<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? token = null) where T : IDatabase_Table
+    public async Task<T?> GetItem<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? token = null) where T : IDatabase_TableMain
         => (await GetItems<T>(filter?.Limit(1) ?? SQLFilter.Limit(1), token)).FirstOrDefault();
 
-    public async Task<(T[], int)> GetItemsWithCount<T>(string sql) where T : IDatabase_Table
+    public async Task<(T[], int)> GetItemsWithCount<T>(string sql) where T : IDatabase_TableMain
     {
         int? rowCount = null;
         return (await ExecuteSQLQuery<T>(sql, DeserializeRow, null), rowCount ?? 0);
@@ -145,7 +145,7 @@ public class Database_Instance : IDisposable
         return await ExecuteSQLQuery<T>(sql, deserializer, cancellationToken);
     }
 
-    public async Task<T[]> GetItems<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? token = null) where T : IDatabase_Table
+    public async Task<T[]> GetItems<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? token = null) where T : IDatabase_TableMain
     {
         if (filter != null)
         {
@@ -158,12 +158,12 @@ public class Database_Instance : IDisposable
         }
     }
 
-    public async Task<T[]> InsertItem<T>(params IEnumerable<T> entries) where T : IDatabase_Table
+    public async Task<T[]> InsertItem<T>(params IEnumerable<T> entries) where T : IDatabase_TableMain
     {
         if (entries.Count() == 0)
             return [];
 
-        Database_Column[] columns = T.getColumns.Where(x => !x.autoIncrement).ToArray();
+        Database_Column[] columns = Database_ColumnMapper.GetColumnsForTable<T>().Where(x => !x.autoIncrement).ToArray();
         List<string> rows = new List<string>();
 
         List<SQLiteParameter> sqlParams = new List<SQLiteParameter>();
@@ -193,19 +193,19 @@ public class Database_Instance : IDisposable
         return await ExecuteSQLQuery(sql.ToString(), Database_ColumnMapper.DeserializeRow<T>, CancellationToken.None, sqlParams.ToArray());
     }
 
-    public async Task Update<T>(IEnumerable<T> objs, Func<T, SQLFilter.InternalSQLFilter> match, params string[] columns) where T : IDatabase_Table
+    public async Task Update<T>(IEnumerable<T> objs, Func<T, SQLFilter.InternalSQLFilter> match, params string[] columns) where T : IDatabase_TableMain
     {
         await Task.WhenAll(objs.Select(o => Update(o, match(o), columns)));
     }
 
-    public async Task Update<T>(T obj, SQLFilter.InternalSQLFilter? match, params string[] columns) where T : IDatabase_Table
+    public async Task Update<T>(T obj, SQLFilter.InternalSQLFilter? match, params string[] columns) where T : IDatabase_TableMain
     {
         StringBuilder sql = new StringBuilder($"UPDATE {T.tableName} SET ");
 
         List<string> updates = new List<string>();
         List<SQLiteParameter> sqlParams = new List<SQLiteParameter>();
 
-        Database_Column[] cols = T.getColumns;
+        Database_Column[] cols = Database_ColumnMapper.GetColumnsForTable<T>();
 
         foreach (Database_Column col in cols)
         {
@@ -231,7 +231,7 @@ public class Database_Instance : IDisposable
         await ExecuteSQLNonQuery(sql.ToString(), null, sqlParams.ToArray());
     }
 
-    public async Task AddOrUpdate<T>(IEnumerable<T> objs, Func<T, SQLFilter.InternalSQLFilter>? match, params string[] columns) where T : IDatabase_Table
+    public async Task AddOrUpdate<T>(IEnumerable<T> objs, Func<T, SQLFilter.InternalSQLFilter>? match, params string[] columns) where T : IDatabase_TableMain
     {
         foreach (T obj in objs)
         {
@@ -240,7 +240,7 @@ public class Database_Instance : IDisposable
     }
 
 
-    public async Task AddOrUpdate<T>(T obj, SQLFilter.InternalSQLFilter? match, params string[] columns) where T : IDatabase_Table
+    public async Task AddOrUpdate<T>(T obj, SQLFilter.InternalSQLFilter? match, params string[] columns) where T : IDatabase_TableMain
     {
         if (await Exists<T>(match))
         {
@@ -252,7 +252,7 @@ public class Database_Instance : IDisposable
         }
     }
 
-    public async Task Delete<T>(SQLFilter.InternalSQLFilter? filter = null) where T : IDatabase_Table
+    public async Task Delete<T>(SQLFilter.InternalSQLFilter? filter = null) where T : IDatabase_TableMain
     {
         StringBuilder sql = new StringBuilder($"DELETE FROM {T.tableName} ");
         if (filter != null)
@@ -266,7 +266,7 @@ public class Database_Instance : IDisposable
         }
     }
 
-    public async Task<int> GetCount<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? cancellationToken = null) where T : IDatabase_Table
+    public async Task<int> GetCount<T>(SQLFilter.InternalSQLFilter? filter = null, CancellationToken? cancellationToken = null) where T : IDatabase_TableMain
     {
         const string countName = "cnt";
         StringBuilder sql = new StringBuilder($"select Count(*) as {countName} FROM {T.tableName}");
